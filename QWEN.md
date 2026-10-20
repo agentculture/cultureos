@@ -9,11 +9,13 @@ Qwen Code session.
 
 ## What this project is
 
-`cultureos` is a **clonable template for AgentCulture mesh agents**.
-It is a working, minimal example of the sibling pattern every Culture agent
-follows: an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. Clone it, rename the package, edit
-`culture.yaml`, and you have a new agent that `steward doctor` recognizes.
+`cultureos` hosts the **cultureos** agent: *CultureOS — an operating system
+built on Culture, the AgentCulture agent mesh.* It was scaffolded from
+[`culture-agent-template`](https://github.com/agentculture/culture-agent-template)
+and today carries only that template's sibling-pattern baseline — an
+agent-first CLI, a mesh identity, the canonical skill kit, and a
+buildable/deployable package baseline. No CultureOS-specific domain code has
+landed yet.
 
 It is a sibling to [`guildmaster`](https://github.com/agentculture/guildmaster)
 (the **skills supplier**), [`steward`](https://github.com/agentculture/steward)
@@ -52,27 +54,16 @@ requires nor changes that declaration. The declaration and the resident prompt
 together satisfy the two invariants `steward doctor` verifies:
 **prompt-file-present** and **backend-consistency** (`claude` ↔ `CLAUDE.md`).
 
-## Cloning this template (re-initialization)
+## Commands
 
-When you start a new agent from this template:
-
-1. Rename the package directory `cultureos/` → `<your_module>/`
-   and replace `cultureos` (module) / `cultureos`
-   (CLI and dist name) throughout `pyproject.toml`, the package, `tests/`,
-   `sonar-project.properties`, and `README.md`. The name is hard-coded in
-   ~100 places, so list every occurrence first rather than renaming by hand
-   (`git grep` is portable and skips `.git` / untracked `__pycache__`):
-
-   ```bash
-   git grep -nF -e 'cultureos' -e 'cultureos'
-   ```
-
-2. Set your `suffix` (and `backend`) in `culture.yaml`. `whoami` and `doctor`
-   then reflect the new identity with no further code change.
-3. Rewrite `CLAUDE.md` (and this file, and the other two harness files) to
-   describe your agent.
-4. Re-vendor the skill kit you need from guildmaster (see
-   `docs/skill-sources.md`) — keep only the skills your agent uses.
+```bash
+uv sync
+uv run pytest -n auto                              # full suite
+uv run pytest tests/test_cli.py::test_whoami_json  # a single test
+uv run cultureos <verb> [--json]
+uv run teken cli doctor . --strict                 # agent-first rubric gate
+uv run python scripts/harness-smoke.py --stage config
+```
 
 ## The CLI
 
@@ -103,20 +94,24 @@ from guildmaster instead.
 
 - **Every PR bumps the version** — even docs/config/CI. Use the
   `version-bump` skill; the `version-check` CI job blocks merge otherwise.
-- **Tests**: `uv run pytest -n auto`. **Lint**: black, isort, flake8 (line
-  length 100), bandit, markdownlint.
+- **Lint**: black, isort, flake8 (line length 100), bandit, markdownlint,
+  plus `scripts/scan-secrets.py`.
+- **When conventions change**, update all four harness prompt files
+  (`CLAUDE.md`, `AGENTS.override.md` + `.pi/SYSTEM.md`, `AGENTS.colleague.md`,
+  this file) together.
 - **Deploy**: pushing to `main` publishes to PyPI via Trusted Publishing
   (`.github/workflows/publish.yml`); PRs do a TestPyPI dry-run.
 
 ## Layout
 
 ```text
-cultureos/   agent-first CLI (cited from teken's python-cli reference)
+cultureos/               agent-first CLI (cited from teken's python-cli reference)
   cli/                    parser, error/output contract, _commands/ (verbs)
   explain/                markdown catalog for `explain`
 tests/                    pytest smoke + introspection tests
 .claude/skills/           vendored guildmaster skill kit (cite-don't-import)
-docs/skill-sources.md     skill provenance ledger
+docs/                     skill provenance ledger + harness-selection docs
+scripts/                  harness-smoke.py (per-harness CI check), scan-secrets.py
 culture.yaml              mesh identity (suffix + backend)
 .github/workflows/        tests + deploy (PyPI Trusted Publishing)
 ```

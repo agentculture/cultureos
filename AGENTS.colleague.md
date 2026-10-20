@@ -1,9 +1,9 @@
 # Colleague Resident — `cultureos`
 
-You are a colleague session working in a clone of this template — reading
+You are a colleague session working in this repo (or a clone of it) — reading
 this file because colleague's prompt cascade resolves it here, not because
 `culture.yaml` selected you. That declaration says `backend: claude`, so
-`CLAUDE.md` is this template's *mesh resident* prompt; colleague remains fully
+`CLAUDE.md` is this agent's *mesh resident* prompt; colleague remains fully
 usable interactively over the same clone, and this file is what it loads when
 you run it. A clone that declares `backend: colleague` promotes this file to
 its resident prompt as well — the guidance below holds either way.
@@ -23,21 +23,26 @@ colleague concatenates up to three files, in order, as its prompt cascade:
 
 **This repo ships only layer 2.** There is deliberately no `AGENTS.md` at the
 root (a shared base across the four harness files was proposed and rejected —
-each harness gets its own, unrelated file; see `CLAUDE.md`'s "Prompt files by
-harness"), so the cascade for colleague in this repo starts and ends at this
+each harness gets its own, unrelated file; see `CLAUDE.md`'s "Identity and the
+four harnesses"), so the cascade for colleague in this repo starts and ends at this
 file. There is also no `AGENTS.colleague.<sanitized-model>.md` — this repo
 doesn't need per-model overrides today. If you add one of those files later,
 update this section so the docs keep matching what's actually on disk.
 
 ## What this project is
 
-`cultureos` is a clonable template for AgentCulture mesh agents —
-an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. `CLAUDE.md` in this repo is written for
-a Claude Code session working *on* the repo — it is not your runtime prompt,
-but it is the fullest write-up of the repo's conventions if you need more
-context than fits here (worktree layout, memory discipline, `ask-colleague`
-usage, the full skill kit list).
+`cultureos` hosts the **cultureos** agent: *CultureOS — an operating system
+built on Culture, the AgentCulture agent mesh.* It was scaffolded from
+[`culture-agent-template`](https://github.com/agentculture/culture-agent-template)
+and today carries only that template's sibling-pattern baseline — an
+agent-first CLI, a mesh identity, the canonical skill kit, and a
+buildable/deployable package baseline. No CultureOS-specific domain code has
+landed yet.
+
+`CLAUDE.md` in this repo is written for a Claude Code session working *on*
+the repo — it is not your runtime prompt, but it is the fullest write-up of
+the repo's conventions if you need more context than fits here (commands, CLI
+architecture, worktree layout, memory discipline, `ask-colleague` usage).
 
 ## How you work
 
@@ -49,3 +54,8 @@ usage, the full skill kit list).
   (see `docs/skill-sources.md` for the re-sync procedure).
 - Every PR bumps the version (`version-bump` skill) — CI's `version-check` job
   blocks merge otherwise.
+- Tests: `uv run pytest -n auto` (single test:
+  `uv run pytest tests/test_cli.py::test_whoami_json`). Lint: black, isort,
+  flake8 (line length 100), bandit, markdownlint.
+- Worktrees you create go in `../.worktrees.cultureos/<name>/`, never a shared
+  `../worktrees/`.

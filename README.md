@@ -2,12 +2,17 @@
 
 CultureOS - an operating system built on Culture, the AgentCulture agent mesh.
 
-## What you get
+> **Status: early scaffold.** This repo was generated from
+> [`culture-agent-template`](https://github.com/agentculture/culture-agent-template)
+> and currently ships only the template's sibling-pattern baseline described
+> below. CultureOS-specific functionality has not landed yet.
+
+## What's here
 
 - **An agent-first CLI** cited from [teken](https://github.com/agentculture/teken)
   (`afi-cli`) — the runtime package has no third-party dependencies.
 - **A mesh identity** — `culture.yaml` (`suffix` + `backend`) and the matching
-  resident prompt file (`CLAUDE.md`, since this template runs
+  resident prompt file (`CLAUDE.md`, since this agent runs
   `backend: claude`). The mesh resident is one of **two separate
   selections** over this clone — see
   [Two selections, not one](#two-selections-not-one) below.
@@ -15,8 +20,9 @@ CultureOS - an operating system built on Culture, the AgentCulture agent mesh.
   one of them (see [Prompt files by harness](#prompt-files-by-harness) below).
   All four harnesses are usable interactively regardless of which one
   `culture.yaml` names as the mesh resident.
-- **The canonical guildmaster skill kit** (11 skills) under `.claude/skills/`,
-  vendored cite-don't-import. See [`docs/skill-sources.md`](docs/skill-sources.md).
+- **The canonical guildmaster skill kit** under `.claude/skills/`,
+  vendored cite-don't-import, and exposed to the other harnesses through
+  `.qwen/skills`, `.colleague/skills` and `.pi/skills` symlinks. See [`docs/skill-sources.md`](docs/skill-sources.md).
 - **A build + deploy baseline** — pytest, lint, the agent-first rubric gate, and
   PyPI Trusted Publishing wired into GitHub Actions.
 
@@ -54,7 +60,7 @@ unrelated file rather than cascading from a shared base.
 ## Two selections, not one
 
 It is tempting to read "switch harness" as one decision. It is actually two,
-and this template exists partly to keep them separate:
+and this repo's layout exists partly to keep them separate:
 
 1. **The interactive harness** — which binary you run (`claude`, `pi`,
    `colleague`, `qwen`). `cd` into the clone and run any of them; all four
@@ -77,9 +83,10 @@ retrofitted by this arc.
 ```bash
 uv sync
 uv run pytest -n auto                 # run the test suite
-uv run cultureos whoami  # identity from culture.yaml
-uv run cultureos learn   # self-teaching prompt (add --json)
+uv run cultureos whoami               # identity from culture.yaml
+uv run cultureos learn                # self-teaching prompt (add --json)
 uv run teken cli doctor . --strict    # the agent-first rubric gate CI runs
+uv run python scripts/harness-smoke.py --stage config  # all four harness configs
 ```
 
 ## CLI
@@ -97,24 +104,22 @@ Every command supports `--json`. Results go to stdout, errors/diagnostics to
 stderr (never mixed). Exit codes: `0` success, `1` user error, `2` environment
 error, `3+` reserved.
 
-## Make it your own
+## Development conventions
 
-1. Rename the package `cultureos/` and the `cultureos`
-   CLI/dist name throughout `pyproject.toml`, the package, `tests/`,
-   `sonar-project.properties`, and this `README.md`. The name is hard-coded in
-   ~100 places, so list every occurrence first — see the `git grep` discovery
-   command in [`CLAUDE.md`](CLAUDE.md), the authoritative rename procedure.
-2. Edit `culture.yaml` with your `suffix` and `backend`, and adjust its
-   `gate` section (below) to your project's setup and test commands.
-3. Rewrite `CLAUDE.md` for your agent and run `/init`. Rewrite the other three
-   harness files (`AGENTS.override.md` + `.pi/SYSTEM.md`, `AGENTS.colleague.md`,
-   `QWEN.md`) too if your agent uses those harnesses — don't let them drift out
-   of sync with `CLAUDE.md`.
-4. Re-vendor only the skills you need from guildmaster (see
-   [`docs/skill-sources.md`](docs/skill-sources.md)).
+- Every PR bumps the version (`version-bump` skill); CI's `version-check` job
+  blocks merge otherwise.
+- PRs go through the `cicd` skill (`devex pr` + SonarCloud gating).
+- Lint: black, isort, flake8 (line length 100), bandit, markdownlint, plus
+  `scripts/scan-secrets.py` and the `teken cli doctor --strict` rubric gate.
+- Pushing to `main` publishes to PyPI via Trusted Publishing; PRs do a
+  TestPyPI dry-run.
+- Vendored skills are cited verbatim — re-sync from guildmaster rather than
+  editing them (see [`docs/skill-sources.md`](docs/skill-sources.md)).
+- When conventions change, update all four harness prompt files together so
+  they don't drift.
 
-See [`CLAUDE.md`](CLAUDE.md) for the full conventions (version-bump-every-PR,
-the `cicd` PR lane, deploy setup).
+See [`CLAUDE.md`](CLAUDE.md) for the full write-up (CLI architecture,
+worktree layout, memory discipline).
 
 ## The `gate` section
 

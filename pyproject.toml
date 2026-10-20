@@ -1,6 +1,6 @@
 [project]
 name = "cultureos"
-version = "0.10.0"
+version = "0.10.1"
 description = "CultureOS - an operating system built on Culture, the AgentCulture agent mesh."
 readme = "README.md"
 license = "Apache-2.0"

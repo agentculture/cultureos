@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-10-20
+
+### Changed
+
+- `CLAUDE.md` initialized from the scaffold seed into a full runtime prompt for cultureos (commands incl. single-test, CLI architecture and error/output contract, the four harnesses and two selections, skill provenance, conventions, worktrees, memory).
+- `README.md`, `AGENTS.override.md`, `AGENTS.colleague.md` and `QWEN.md` reframed from "clonable template" to the cultureos agent (early scaffold); dangling references to removed `CLAUDE.md` sections fixed; template-only rename steps replaced; hardcoded README skill count dropped.
+- `recall` / `remember` re-vendored directly from eidetic-cli 0.14.1 (scripts byte-verbatim; `SKILL.md` adapted only for the scope literal and dangling relative links) and recorded in `docs/skill-sources.md` as a tracked local divergence until guildmaster re-syncs (agentculture/guildmaster#144).
+
+### Fixed
+
+- `recall` / `remember` skill descriptions claimed a private home-directory store by default while the wrapper actually defaults to public, in-repo `.eidetic/memory` (committed).
+- `recall` / `remember` wrappers exported `EIDETIC_EMBED_URL=http://localhost:8002/v1`, which is not host-reachable; now the lobes gateway default `:8001`.
+
 ## [0.10.0] - 2026-10-06
 
 ### Added

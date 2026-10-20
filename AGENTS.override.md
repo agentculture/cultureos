@@ -20,10 +20,13 @@ what the repo is and how it is laid out, not who is reading it.
 
 ## What this project is
 
-`cultureos` is a clonable template for AgentCulture mesh agents —
-a working, minimal example of the sibling pattern every Culture agent follows:
-an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. It is a sibling to
+`cultureos` hosts the **cultureos** agent: *CultureOS — an operating system
+built on Culture, the AgentCulture agent mesh.* It was scaffolded from
+[`culture-agent-template`](https://github.com/agentculture/culture-agent-template)
+and today carries only that template's sibling-pattern baseline — an
+agent-first CLI, a mesh identity, the canonical skill kit, and a
+buildable/deployable package baseline. No CultureOS-specific domain code has
+landed yet. It is a sibling to
 [`guildmaster`](https://github.com/agentculture/guildmaster) (the skills
 supplier), [`steward`](https://github.com/agentculture/steward) (alignment),
 and [`teken`](https://github.com/agentculture/teken) (the CLI scaffolder this
@@ -57,7 +60,7 @@ agents:
   backend: claude
 ```
 
-This template's *mesh* resident runs on `backend: claude`, so `CLAUDE.md` is
+This agent's *mesh* resident runs on `backend: claude`, so `CLAUDE.md` is
 the live resident prompt. A Pi session working in a clone of this repo is a
 **local tool session**, not the mesh resident — it reads this file and
 `.pi/SYSTEM.md` regardless of what `culture.yaml` declares, and running `pi`
@@ -65,17 +68,18 @@ here neither requires nor changes that declaration.
 
 (A clone that wants `associate` as its *mesh* resident declares
 `backend: colleague` with `model: associate` — see `docs/skill-sources.md`.
-That is a per-clone choice; this template does not ship it.)
+That is a per-clone choice; this repo does not ship it.)
 
 ## Layout (what you can read/find/summarize here)
 
 ```text
-cultureos/   agent-first CLI (cited from teken's python-cli reference)
+cultureos/               agent-first CLI (cited from teken's python-cli reference)
   cli/                    parser, error/output contract, _commands/ (verbs)
   explain/                markdown catalog for `explain`
 tests/                    pytest smoke + introspection tests
 .claude/skills/           vendored guildmaster skill kit (cite-don't-import)
-docs/skill-sources.md     skill provenance ledger
+docs/                     skill provenance ledger + harness-selection docs
+scripts/                  harness-smoke.py (per-harness CI check), scan-secrets.py
 culture.yaml              mesh identity (suffix + backend)
 .github/workflows/        tests + deploy (PyPI Trusted Publishing)
 ```
@@ -85,9 +89,8 @@ culture.yaml              mesh identity (suffix + backend)
 - The vendored skills under `.claude/skills/` are cited **verbatim** from
   guildmaster — never propose editing their scripts; the fix belongs upstream
   (`docs/skill-sources.md` has the re-sync procedure).
-- The package/CLI name (`cultureos` / `cultureos`)
-  is hard-coded in roughly a hundred places; a rename is a `git grep` sweep,
-  not a hand edit (see `CLAUDE.md`'s "Cloning this template" section).
+- The package/CLI name `cultureos` is hard-coded in roughly a hundred
+  places; a rename is a `git grep -nF cultureos` sweep, not a hand edit.
 - Every PR bumps the version (`version-bump` skill); CI's `version-check` job
   blocks merge otherwise.
 - This file describes the repo **as it exists on disk today**. If you are
