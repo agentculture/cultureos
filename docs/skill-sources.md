@@ -51,6 +51,8 @@ is load-bearing, even where guildmaster's upstream copy omits it.
 | `validate-delivery` | `../guildmaster/.claude/skills/validate-delivery/` | **devague** (re-broadcast via guildmaster) | Runs the confirmed plan's behavioral tests agent-side after `/assign-to-workforce` merges its waves and before `/summarize-delivery` closes the loop, then files what was found — evidence for what passed, behavioral deltas for what the run added, amended, or removed — as first-class, record-only entries via the devague CLI. The CLI never runs a test ([devague#20](https://github.com/agentculture/devague/issues/20)); a failing or partial outcome is never suppressed. `SKILL.md` verbatim with devague (already carries `type: command`); guildmaster adds `scripts/validate-delivery.sh`. | 2026-09-05 (devague 0.24.1 via guildmaster) |
 | `summarize-delivery` | `../guildmaster/.claude/skills/summarize-delivery/` | **devague** (re-broadcast via guildmaster) | Closes the loop after an assign-to-workforce run by turning what actually happened into an accountability artifact — planned versus actual delivery, mid-work decisions, plan drift, evidence-backed delivery claims, and remaining work; runs on complete, partial, AND failed runs, reporting failure faithfully rather than smoothing it over. `SKILL.md` verbatim with devague (already carries `type: command`); guildmaster adds `scripts/summarize-delivery.sh`, vendored here deliberately since 0.24.1. | 2026-09-05 (devague 0.24.1 via guildmaster) |
 | `ask-colleague` | `../colleague/.claude/skills/ask-colleague/` | **colleague** (renamed from convertible; vendored directly — guildmaster re-broadcast pending) | The first-party front door to the `colleague` CLI: hand a scoped task to a *different* engine/mind via `explore` / `review` / `write`, run the spec→plan→workforce arc via `plan`, pick a cut or timed-out run back up via `resume` (`--detach` to background it), pilot a live work item with `monitor` / `guide` / `stop`, grade a finished work item via `feedback` (the ROI loop), and reap stale/corrupt `colleague/*` branches a crashed run left behind via `clean`. Thinking effort is per-seat (`--effort`, `--seat-effort S=R`, `--role`). Every verb takes `--json` (result JSON on stdout, diagnostics on stderr). `explore`/`review` run isolated in a throwaway `git worktree`; `write` **previews by default** (throwaway worktree, no side effects) and refuses a dirty tree only when applying (`--apply` / `--pr`). Vendored **byte-verbatim** as of the 1.63.0 sync — the Provenance paragraph is consumer-neutral upstream, so the localization noted for earlier syncs no longer applies; verify with `diff -r ../colleague/.claude/skills/ask-colleague .claude/skills/ask-colleague`. Already carries `type: command`. Optional runtime dep: **`colleague`** on PATH. | 2026-08-24 (colleague 1.63.0, direct) |
+| `recall` | `../eidetic-cli/.claude/skills/recall/` | **eidetic-cli** (vendored directly — guildmaster's re-broadcast is stale) | Search the eidetic memory store. Scripts byte-verbatim with eidetic-cli; `SKILL.md` adapted only for the consumer scope literal (`eidetic-cli` → `cultureos`) and for repo-relative links (`docs/contract.md`, `docs/skill-sources.md`) that would dangle here, now absolute GitHub URLs. Defaults to `--scope cultureos --visibility public` (memory scope+visibility convention v1). Requires `eidetic` on PATH; the opt-in `--rerank*` flags need an eidetic that ships them. | 2026-10-20 (eidetic-cli 0.14.1, direct) |
+| `remember` | `../eidetic-cli/.claude/skills/remember/` | **eidetic-cli** (vendored directly — guildmaster's re-broadcast is stale) | Ingest into the eidetic memory store. Same adaptations as `recall`. A no-flag remember lands in `<repo>/.eidetic/memory` (committed); `--visibility private` routes to `$HOME/.eidetic/memory`. | 2026-10-20 (eidetic-cli 0.14.1, direct) |
 
 ## Re-sync procedure
 
@@ -76,6 +78,19 @@ cp -R ../guildmaster/.claude/skills/<skill> .claude/skills/
 If a re-sync would lose a cultureos adaptation, lift the change
 upstream into guildmaster first (per guildmaster's `docs/skill-sources.md`) and
 re-vendor.
+
+### Local divergence — `recall` / `remember` vendored from eidetic-cli (2026-10-20)
+
+Scaffolding delivered guildmaster's copy of both skills. That copy layers a
+"rollout-cli eidetic-memory recipe POLICY OVERRIDE" onto an older eidetic
+wrapper: the code defaults to `--visibility public`, while the script's usage
+text, comments and both `SKILL.md` descriptions still claim private /
+home-directory store by default. It also exported
+`EIDETIC_EMBED_URL=http://localhost:8002/v1`, a port eidetic-cli has since
+documented as never host-reachable (the lobes gateway is `:8001`). eidetic-cli
+0.14.1 already ships public-by-default natively, with consistent prose, so
+both skills are now vendored directly from the origin. Revert to guildmaster's
+copy once its re-broadcast re-syncs.
 
 ### Local divergence — `agex` → `devex` rename (2026-05-30)
 
