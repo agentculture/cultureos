@@ -8,7 +8,7 @@ slug: `ventuno-q-cultureos-ota` · status: `exported` · from frame: `ventuno-q-
 
 ### t1 — M0 reference build: unmodified upstream ventuno-q image built on the aarch64 DGX Spark
 
-- instruction: Build in a scratch build dir outside the repo (e.g. /home/spark/yocto/cultureos-ref); only the script and the doc land in the repo. Cap `BB_NUMBER_THREADS`/`PARALLEL_MAKE` so the Spark's other workloads keep running. If the aarch64 host build fails, stop and report the failing recipe - do not switch hosts silently.
+- instruction: Build in a scratch build dir outside the repo (e.g. ~/yocto/cultureos-ref); only the script and the doc land in the repo. Cap `BB_NUMBER_THREADS`/`PARALLEL_MAKE` so the Spark's other workloads keep running. If the aarch64 host build fails, stop and report the failing recipe - do not switch hosts silently.
 - covers: c23, h16
 - acceptance:
   - os/scripts/build-reference.sh runs kas-container on meta-qcom-arduino ci/ventuno-q.yml (+ ci/qcom-distro.yml) and exits 0 on the Spark
@@ -95,7 +95,7 @@ slug: `ventuno-q-cultureos-ota` · status: `exported` · from frame: `ventuno-q-
 - depends on: t5
 - covers: c26, h11
 - acceptance:
-  - os/meta-cultureos/recipes-core/cultureos-provision/ installs a oneshot unit that reads a provisioning file (e.g. cultureos-provision.toml on the ESP or a USB stick) on first boot, writes the NetworkManager/iwd profile + /var/home/arduino/.ssh/`authorized_keys`, then shreds the input
+  - os/meta-cultureos/recipes-core/cultureos-provision/ installs a oneshot unit that reads a provisioning file (e.g. cultureos-provision.toml on the ESP or a USB stick) on first boot, writes the NetworkManager/iwd profile + the arduino user's ~/.ssh/`authorized_keys` (home under /var), then shreds the input
   - python3 scripts/scan-secrets.py passes; a test asserts the image rootfs contains no psk= or tskey- strings
   - docs/os/provisioning.md shows the file format with placeholder values only
 

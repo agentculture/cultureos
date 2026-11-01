@@ -250,8 +250,6 @@ Edit the Owner/Model columns before approving gate 2 — the default Model is a 
 
 ## End state
 
-note: plan has not converged — this is a preview, not a commitment
-
 ### Announcement
 
 - The Arduino VENTUNO Q runs CultureOS — our own pinned, reproducible Yocto image (meta-cultureos) built from this repo and installed on NVMe — reachable over Tailscale; OSTree-based OTA follows once the OS lives on NVMe, so the board ends up needing nothing but power to stay current.
