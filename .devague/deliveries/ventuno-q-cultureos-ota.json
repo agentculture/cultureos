@@ -2,7 +2,7 @@
   "plan_slug": "ventuno-q-cultureos-ota",
   "schema_version": 2,
   "created": "2026-11-01T07:39:19Z",
-  "updated": "2026-11-01T07:46:52Z",
+  "updated": "2026-11-01T08:39:20Z",
   "deviations": [
     {
       "id": "d1",
@@ -32,7 +32,7 @@
       "reason": "criterion was worded from the flash doc's --version image selector; the tool's own version check is the 'version' subcommand",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 2
     }
