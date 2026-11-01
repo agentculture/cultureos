@@ -1,0 +1,17 @@
+[Unit]
+Description=CultureOS OSTree release repo (static HTTP, Tailscale address only)
+Documentation=https://github.com/agentculture/cultureos/blob/main/docs/os/release-repo.md
+After=network-online.target
+
+[Service]
+Type=simple
+# Optional per-user overrides: CULTUREOS_RELEASE_REPO, CULTUREOS_SERVE_PORT.
+EnvironmentFile=-%h/.config/cultureos/release.env
+# Bind to the tailnet IPv4 only (resolved at start); never 0.0.0.0. If tailscale
+# has no address yet the unit fails and systemd retries.
+ExecStart=/bin/bash -c 'ip="$$(tailscale ip -4 | head -n1)"; [ -n "$$ip" ] || { echo "no tailscale IPv4 address" >&2; exit 1; }; exec python3 -m http.server "$${CULTUREOS_SERVE_PORT:-8650}" --bind "$$ip" --directory "$${CULTUREOS_RELEASE_REPO:-$$HOME/cultureos-ostree/repo}"'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

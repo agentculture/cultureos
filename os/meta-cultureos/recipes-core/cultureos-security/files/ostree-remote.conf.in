@@ -1,0 +1,13 @@
+# CultureOS OTA remote (cultureos-security, plan task t12). Generated at build
+# time from ostree-remote.conf.in: the remote name is OSTREE_OSNAME, the URL is
+# CULTUREOS_OSTREE_URL and the key file is CULTUREOS_OSTREE_PUBKEY_PATH.
+#
+# Every commit pulled from this remote must carry a valid ed25519 signature
+# made with the release key whose public half is in the key file; anything
+# else (unsigned, signed with another key, or no key file at all) is refused.
+# GPG is not used (meta-updater builds ostree without gpgme).
+[remote "@REMOTE@"]
+url=@URL@
+gpg-verify=false
+sign-verify=true
+verification-ed25519-file=@PUBKEY_PATH@

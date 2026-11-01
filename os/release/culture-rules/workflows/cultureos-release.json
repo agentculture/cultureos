@@ -1,0 +1,453 @@
+{
+  "description": "",
+  "edges": [
+    {
+      "source": "inputs",
+      "source_port": "ref",
+      "target": "sync",
+      "target_port": "ref"
+    },
+    {
+      "source": "inputs",
+      "source_port": "version",
+      "target": "bundle",
+      "target_port": "version"
+    },
+    {
+      "source": "sync",
+      "source_port": "exit_code",
+      "target": "build",
+      "target_port": "after"
+    },
+    {
+      "source": "build",
+      "source_port": "exit_code",
+      "target": "bundle",
+      "target_port": "after"
+    },
+    {
+      "source": "bundle",
+      "source_port": "exit_code",
+      "target": "publish",
+      "target_port": "after"
+    },
+    {
+      "source": "publish",
+      "source_port": "exit_code",
+      "target": "notify",
+      "target_port": "after"
+    },
+    {
+      "source": "notify",
+      "source_port": "stdout",
+      "target": "status",
+      "target_port": "update_json"
+    },
+    {
+      "source": "publish",
+      "source_port": "stdout",
+      "target": "status",
+      "target_port": "target"
+    }
+  ],
+  "enabled": true,
+  "id": "cultureos-release",
+  "inputs": [
+    {
+      "description": "origin/main or a commit sha to release",
+      "name": "ref",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "release version, e.g. 0.12.0",
+      "name": "version",
+      "required": true,
+      "type": "string"
+    }
+  ],
+  "name": "Release CultureOS to the board",
+  "notes": "build -> bundle -> sign+publish -> start the board's update -> poll for the outcome. Every step runs on spark through the runner actor and fails the run on a non-zero exit, so a failed build, bundle or publish never reaches the board, and the run succeeds only when the board boots the published commit as its default. The outputs are the git commit built, the published OSTree commit, the bundle path, the board's trigger JSON and its final status JSON (docs/os/release-workflow.md).",
+  "outputs": [
+    {
+      "name": "commit",
+      "source": "steps.sync.outputs.stdout",
+      "type": "string"
+    },
+    {
+      "name": "ostree_commit",
+      "source": "steps.publish.outputs.stdout",
+      "type": "string"
+    },
+    {
+      "name": "bundle",
+      "source": "steps.bundle.outputs.stdout",
+      "type": "string"
+    },
+    {
+      "name": "update",
+      "source": "steps.notify.outputs.stdout",
+      "type": "string"
+    },
+    {
+      "name": "board_status",
+      "source": "steps.status.outputs.stdout",
+      "type": "string"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "idempotent": true,
+          "kind": "machine.command",
+          "params": {
+            "actor": "spark-cultureos-release",
+            "args": {
+              "ref": "inputs.ref"
+            },
+            "command": "release_sync"
+          }
+        },
+        "builtin": "action"
+      },
+      "description": "",
+      "enabled": true,
+      "id": "sync",
+      "inputs": [
+        {
+          "description": "origin/main or a commit sha",
+          "name": "ref",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Check out the release commit",
+      "notes": "Clean clone of cultureos on spark, detached at the ref. Refuses a dirty checkout.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "stdout",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "stderr",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "exit_code",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": {
+        "machine": "spark"
+      },
+      "retry": null,
+      "timeout_s": 600
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "idempotent": true,
+          "kind": "machine.command",
+          "params": {
+            "actor": "spark-cultureos-release",
+            "args": {},
+            "command": "release_build"
+          }
+        },
+        "builtin": "action"
+      },
+      "description": "",
+      "enabled": true,
+      "id": "build",
+      "inputs": [
+        {
+          "description": "the previous step's exit code: run only after it succeeded",
+          "name": "after",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Build cultureos-image",
+      "notes": "os/scripts/bb.sh on the release checkout (docs/os/building.md); waits for the shared build lock.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "stdout",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "stderr",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "exit_code",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": {
+        "machine": "spark"
+      },
+      "retry": null,
+      "timeout_s": 22000
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "idempotent": true,
+          "kind": "machine.command",
+          "params": {
+            "actor": "spark-cultureos-release",
+            "args": {
+              "version": "inputs.version"
+            },
+            "command": "release_bundle"
+          }
+        },
+        "builtin": "action"
+      },
+      "description": "",
+      "enabled": true,
+      "id": "bundle",
+      "inputs": [
+        {
+          "description": "release version",
+          "name": "version",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the previous step's exit code: run only after it succeeded",
+          "name": "after",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Bundle the release",
+      "notes": "os/scripts/bundle-release.sh: tarball with licences and MANIFEST, outside the repo.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "stdout",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "stderr",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "exit_code",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": {
+        "machine": "spark"
+      },
+      "retry": null,
+      "timeout_s": 2400
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "idempotent": true,
+          "kind": "machine.command",
+          "params": {
+            "actor": "spark-cultureos-release",
+            "args": {},
+            "command": "release_publish"
+          }
+        },
+        "builtin": "action"
+      },
+      "description": "",
+      "enabled": true,
+      "id": "publish",
+      "inputs": [
+        {
+          "description": "the previous step's exit code: run only after it succeeded",
+          "name": "after",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Sign and publish the OSTree commit",
+      "notes": "os/scripts/publish-ostree.sh: import, ed25519-sign the commit, verify, move the ref, update the (unsigned) summary; leaves the ref unchanged on failure. Prints the published OSTree commit, the release target. Replay/downgrade protection is the board's --timestamp-check.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "stdout",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "stderr",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "exit_code",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": {
+        "machine": "spark"
+      },
+      "retry": null,
+      "timeout_s": 2400
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "idempotent": true,
+          "kind": "machine.command",
+          "params": {
+            "actor": "spark-cultureos-release",
+            "args": {},
+            "command": "release_trigger"
+          }
+        },
+        "builtin": "action"
+      },
+      "description": "",
+      "enabled": true,
+      "id": "notify",
+      "inputs": [
+        {
+          "description": "the previous step's exit code: run only after it succeeded",
+          "name": "after",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Start the board's update",
+      "notes": "ssh <board> cultureos-update now --no-wait --json over Tailscale: starts cultureos-update.service and returns at once with result started and previous_run_id. A refused start (exit 2) fails the step.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "stdout",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "stderr",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "exit_code",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": {
+        "machine": "spark"
+      },
+      "retry": null,
+      "timeout_s": 300
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "idempotent": true,
+          "kind": "machine.command",
+          "params": {
+            "actor": "spark-cultureos-release",
+            "args": {
+              "target": "inputs.target",
+              "update_json": "inputs.update_json",
+              "wait_s": 16200
+            },
+            "command": "release_status"
+          }
+        },
+        "builtin": "action"
+      },
+      "description": "",
+      "enabled": true,
+      "id": "status",
+      "inputs": [
+        {
+          "description": "the published OSTree commit (publish step)",
+          "name": "target",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the notify step's JSON line (previous_run_id)",
+          "name": "update_json",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Read the board's outcome",
+      "notes": "Polls cultureos os status and cultureos-update status on the board until the target is booted and the default (exit 0). Held, failed, rolled back, an error or a different commit fail the run (exit 1-3); pending and staged keep polling; no outcome in 16200 s (a 4 h pull, reboot and trial) exits 3.",
+      "outputs": [
+        {
+          "description": "",
+          "name": "stdout",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "stderr",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "exit_code",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": {
+        "machine": "spark"
+      },
+      "retry": null,
+      "timeout_s": 17000
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

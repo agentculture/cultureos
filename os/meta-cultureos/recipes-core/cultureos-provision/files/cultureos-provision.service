@@ -1,0 +1,23 @@
+[Unit]
+Description=CultureOS first-boot provisioning (login user, SSH key, Wi-Fi)
+# Runs once: the helper writes this marker after a successful apply.
+ConditionPathExists=!/var/lib/cultureos/provisioned
+# Early unit: default dependencies would order it after basic.target and
+# create a cycle with sshd.socket.
+DefaultDependencies=no
+After=sysinit.target local-fs.target systemd-tmpfiles-setup.service systemd-udev-trigger.service
+Wants=network-pre.target
+Before=network-pre.target NetworkManager.service sshd.socket systemd-user-sessions.service
+Before=getty-pre.target serial-getty@ttyGS1.service serial-getty@ttyMSM0.service
+Before=multi-user.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/cultureos-provision/cultureos-provision
+# Input search waits up to 10 s for a USB stick; useradd and shred are quick.
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

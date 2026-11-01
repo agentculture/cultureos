@@ -1,0 +1,618 @@
+#!/usr/bin/env python3
+"""cultureos-trialboot: one-shot trial boot of a new OSTree deployment, health-gated promotion.
+
+Decision c39 (docs/os/rollback.md). A new deployment is staged NON-default and booted
+once through systemd-boot's LoaderEntryOneShot. Only a passing health check on that
+trial boot makes it the default. A panic (panic=N), a hang (qcom_wdt via systemd's
+RuntimeWatchdogSec), a failed or timed-out health check, or a deadline all end in a
+reset, and the firmware then boots the unchanged default.
+
+Subcommands:
+  stage REF [--reboot]  deploy REF non-default and point LoaderEntryOneShot at it
+  preflight             would `stage` be allowed now? (the update agent asks before it
+                        downloads anything)
+  check                 trial boot: run the health checks (cultureos-trialboot-health.service);
+                        normal boot: record a trial that did not come back (rolled back)
+  health-exit           ExecStopPost of the health unit: reboot a trial whose check failed
+  promote               make a trial that passed its check in this boot the default
+  deadline              reboot a trial boot that is still not promoted (timer)
+  status                print the trial state as JSON
+
+Exit codes: 0 ok, 1 usage error or refused (default left unchanged), 2 environment
+error. A refusal also prints one JSON line on stdout, {"status": "refused", "kind": K,
+"reason": R}: kind "transient" clears by itself (a trial is already staged), kind
+"persistent" needs a reboot into the default or an operator (booted deployment is not the
+default, systemd-boot's default entry is not OSTree's, the default entry is not blessed).
+Every external command is overridable for offline tests (CULTUREOS_TRIALBOOT_OSTREE,
+_BOOTCTL, _SYSTEMCTL), as are the paths.
+"""
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+PROG = "cultureos-trialboot"
+# Kept equal to CULTUREOS_PANIC_TIMEOUT by the recipe (do_install substitutes it).
+PANIC_TIMEOUT_DEFAULT = "5"
+SCHEMA_VERSION = 1
+
+
+TRANSIENT = "transient"
+PERSISTENT = "persistent"
+
+
+class Refused(Exception):
+    """A precondition does not hold; nothing was changed. Exit 1.
+
+    @kind: TRANSIENT (clears by itself) or PERSISTENT (never clears on its own)."""
+
+    def __init__(self, msg: str, kind: str = PERSISTENT):
+        super().__init__(msg)
+        self.kind = kind
+
+
+class EnvFail(Exception):
+    """A command or file the helper relies on failed. Exit 2."""
+
+
+# -- configuration ---------------------------------------------------------------
+
+
+def _env(name: str, default: str) -> str:
+    return os.environ.get(name, default)
+
+
+def _state_path() -> Path:
+    return Path(_env("CULTUREOS_TRIALBOOT_STATE", "/var/lib/cultureos/trialboot.json"))
+
+
+def _update_state_path() -> Path:
+    return Path(_env("CULTUREOS_UPDATE_STATE", "/var/lib/cultureos/update-state.json"))
+
+
+def _osname() -> str:
+    return _env("CULTUREOS_TRIALBOOT_OSNAME", "cultureos")
+
+
+def _health_dirs() -> list[Path]:
+    raw = _env(
+        "CULTUREOS_TRIALBOOT_HEALTH_DIRS", "/usr/lib/cultureos/health.d:/etc/cultureos/health.d"
+    )
+    return [Path(p) for p in raw.split(":") if p]
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(_env(name, str(default)))
+    except ValueError as exc:
+        raise EnvFail(f"{name} is not a number") from exc
+
+
+# -- small helpers ---------------------------------------------------------------
+
+
+def log(msg: str) -> None:
+    print(f"{PROG}: {msg}", file=sys.stderr, flush=True)
+
+
+def now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def boot_id() -> str:
+    path = Path(_env("CULTUREOS_TRIALBOOT_BOOT_ID_FILE", "/proc/sys/kernel/random/boot_id"))
+    try:
+        return path.read_text().strip()
+    except OSError as exc:
+        raise EnvFail(f"cannot read boot id from {path}: {exc}") from exc
+
+
+def run(tool: str, args: list[str], timeout: float = 300) -> str:
+    argv0 = _env(f"CULTUREOS_TRIALBOOT_{tool.upper()}", tool)
+    try:
+        r = subprocess.run(
+            [argv0, *args], capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except FileNotFoundError as exc:
+        raise EnvFail(f"{argv0} not found") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise EnvFail(f"{tool} {' '.join(args)} timed out") from exc
+    if r.returncode != 0:
+        detail = r.stderr.strip() or r.stdout.strip()
+        raise EnvFail(f"{tool} {' '.join(args)} failed ({r.returncode}): {detail}")
+    return r.stdout
+
+
+def write_json(path: Path, data: dict) -> None:
+    """Replace @path atomically (temp file in the same directory, then rename)."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except OSError as exc:
+        raise EnvFail(f"cannot write {path}: {exc}") from exc
+
+
+def load_state() -> dict:
+    path = _state_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        raise EnvFail(f"cannot read {path}: {exc}") from exc
+    return data if isinstance(data, dict) else {}
+
+
+def save_state(state: dict) -> None:
+    state["schema_version"] = SCHEMA_VERSION
+    state["updated_at"] = now()
+    write_json(_state_path(), state)
+
+
+def write_outcome(outcome: str, state: dict, reason: str | None = None) -> None:
+    """docs/os/update-state.md, read by `cultureos os status`."""
+    write_json(
+        _update_state_path(),
+        {
+            "schema_version": 1,
+            "outcome": outcome,
+            "timestamp": now(),
+            "deployed_version": state.get("version"),
+            "deployed_commit": state.get("commit"),
+            "previous_commit": state.get("previous_commit"),
+            "reason": reason,
+        },
+    )
+
+
+def deployments() -> list[dict]:
+    out = run("ostree", ["admin", "status", "--json"])
+    try:
+        deps = json.loads(out)["deployments"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise EnvFail(f"unexpected `ostree admin status --json` output: {exc}") from exc
+    if not deps:
+        raise EnvFail("no OSTree deployments")
+    return deps
+
+
+def booted_of(deps: list[dict]) -> dict:
+    for d in deps:
+        if d.get("booted"):
+            return d
+    raise EnvFail("not booted into an OSTree deployment")
+
+
+def same(a: dict, b: dict) -> bool:
+    return a["checksum"] == b["checksum"] and a["serial"] == b["serial"]
+
+
+def entry_id(deps: list[dict], index: int) -> str:
+    """libostree's BLS entry name (2024.5+ naming): ostree-<n - index>.conf. systemd-boot
+    and bootctl strip the boot-counting suffix (+3, +2-1) from the id."""
+    return f"ostree-{len(deps) - index}.conf"
+
+
+def boot_entries() -> list[dict]:
+    out = run("bootctl", ["list", "--json=short", "--no-pager"])
+    try:
+        entries = json.loads(out)
+    except ValueError as exc:
+        raise EnvFail(f"unexpected `bootctl list --json` output: {exc}") from exc
+    if not isinstance(entries, list):
+        raise EnvFail("unexpected `bootctl list --json` output")
+    return entries
+
+
+def request_reboot(why: str) -> None:
+    log(f"rebooting: {why}")
+    run("systemctl", ["reboot", "--no-block"])
+
+
+def trial_of(state: dict, deps: list[dict]) -> dict | None:
+    """The booted deployment, if this boot is the staged trial; else None."""
+    booted = booted_of(deps)
+    if state.get("status") != "pending" or same(booted, deps[0]):
+        return None
+    if booted["checksum"] == state.get("commit") and booted["serial"] == state.get("serial"):
+        return booted
+    return None
+
+
+# -- stage -------------------------------------------------------------------------
+
+
+def preconditions(bid: str) -> tuple[list[dict], dict]:
+    """Everything `stage` needs before it deploys; raise Refused (with its kind) if not.
+    Returns (deployments, booted)."""
+    state = load_state()
+    if state.get("status") == "pending" and state.get("staged_boot_id") == bid:
+        raise Refused(
+            f"a trial of {state.get('commit')} is already staged; reboot to run it", TRANSIENT
+        )
+
+    deps = deployments()
+    booted = booted_of(deps)
+    if not same(booted, deps[0]):
+        raise Refused(
+            "the booted deployment is not the default (a trial is running or the default was "
+            "changed by hand); boot the default before staging"
+        )
+
+    entries = boot_entries()
+    defaults = [e for e in entries if e.get("isDefault")]
+    expected = entry_id(deps, 0)
+    if len(defaults) != 1 or defaults[0].get("id") != expected:
+        got = defaults[0].get("id") if defaults else "none"
+        raise Refused(
+            f"systemd-boot default entry {got} does not match the OSTree default {expected} "
+            "(is LoaderEntryDefault set?)"
+        )
+    if "triesLeft" in defaults[0]:
+        raise Refused(
+            f"default entry {expected} is not blessed yet (boot counting still running); "
+            "systemd-boot could fall through to the trial entry"
+        )
+    return deps, booted
+
+
+def cmd_preflight(argv: list[str]) -> int:
+    if argv:
+        raise UsageError("usage: cultureos-trialboot preflight")
+    preconditions(boot_id())
+    print(json.dumps({"status": "ok"}))
+    return 0
+
+
+def cmd_stage(argv: list[str]) -> int:
+    reboot = "--reboot" in argv
+    refs = [a for a in argv if a != "--reboot"]
+    if len(refs) != 1 or refs[0].startswith("-"):
+        raise UsageError("usage: cultureos-trialboot stage REF [--reboot]")
+    ref = refs[0]
+    bid = boot_id()
+    deps, booted = preconditions(bid)
+
+    commit = run("ostree", ["rev-parse", ref]).strip()
+    if commit == booted["checksum"]:
+        raise Refused(f"{ref} is the commit already running ({commit})")
+
+    panic = _env("CULTUREOS_TRIALBOOT_PANIC", PANIC_TIMEOUT_DEFAULT)
+    before = {(d["checksum"], d["serial"]) for d in deps}
+    run(
+        "ostree",
+        ["admin", "deploy", "--not-as-default", f"--os={_osname()}", f"--karg=panic={panic}", ref],
+        timeout=3600,
+    )
+
+    deps = deployments()
+    if not same(booted_of(deps), deps[0]):
+        raise EnvFail("ostree changed the default deployment; refusing to continue")
+    new = [
+        (i, d)
+        for i, d in enumerate(deps)
+        if (d["checksum"], d["serial"]) not in before and d["checksum"] == commit
+    ]
+    if len(new) != 1 or new[0][0] == 0:
+        raise EnvFail(f"cannot find the new non-default deployment of {commit}")
+    index, dep = new[0]
+    eid = entry_id(deps, index)
+    entry = next((e for e in boot_entries() if e.get("id") == eid), None)
+    if entry is None or entry.get("isDefault"):
+        raise EnvFail(f"boot entry {eid} for the trial is missing or is the default")
+
+    state = {
+        "status": "pending",
+        "commit": commit,
+        "serial": dep["serial"],
+        "version": dep.get("version"),
+        "stateroot": dep.get("stateroot"),
+        "entry_id": eid,
+        "previous_commit": booted["checksum"],
+        "previous_serial": booted["serial"],
+        "staged_at": now(),
+        "staged_boot_id": bid,
+        "trial_boot_id": None,
+        "health": None,
+        "reason": None,
+    }
+    save_state(state)
+    try:
+        run("bootctl", ["set-oneshot", eid])
+    except EnvFail as exc:
+        state["status"] = "failed"
+        state["reason"] = f"could not set LoaderEntryOneShot to {eid}: {exc}"
+        save_state(state)
+        raise EnvFail(state["reason"]) from exc
+
+    print(
+        json.dumps(
+            {
+                "status": "pending",
+                "commit": commit,
+                "serial": dep["serial"],
+                "entry_id": eid,
+                "previous_commit": booted["checksum"],
+                "reboot": reboot,
+            }
+        )
+    )
+    log(f"staged {commit}.{dep['serial']} as one-shot entry {eid}; default unchanged")
+    if reboot:
+        request_reboot("trial boot of the staged deployment")
+    return 0
+
+
+# -- health check ------------------------------------------------------------------
+
+
+def _checks() -> list[tuple[str, Path]]:
+    """Executables from the health dirs, by name; a later dir overrides an earlier one
+    and a symlink to /dev/null masks a check (systemd drop-in convention)."""
+    found: dict[str, Path] = {}
+    for d in _health_dirs():
+        if not d.is_dir():
+            continue
+        for p in d.iterdir():
+            if not p.name.startswith("."):
+                found[p.name] = p
+    out = []
+    for name in sorted(found):
+        p = found[name]
+        if p.is_symlink() and os.path.realpath(p) == "/dev/null":
+            continue
+        if p.is_file() and os.access(p, os.X_OK):
+            out.append((name, p))
+    return out
+
+
+def run_checks() -> tuple[bool, str]:
+    per_check = _float_env("CULTUREOS_TRIALBOOT_CHECK_TIMEOUT", 120)
+    budget = _float_env("CULTUREOS_TRIALBOOT_TIMEOUT", 300)
+    deadline = time.monotonic() + budget
+    checks = _checks()
+    if not checks:
+        dirs = ", ".join(str(d) for d in _health_dirs())
+        return False, (
+            f"no health checks installed (looked in {dirs}); a trial without checks is not "
+            "promoted"
+        )
+    for name, path in checks:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False, f"health checks timed out after {budget:g} s (before {name})"
+        limit = min(per_check, remaining)
+        log(f"health check {name}")
+        try:
+            # Own process group, so a timeout also kills whatever the check forked
+            # (a leftover child would otherwise hold the pipes open).
+            proc = subprocess.Popen(
+                [str(path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            return False, f"{name} could not run: {exc}"
+        try:
+            out, err = proc.communicate(timeout=limit)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.communicate()
+            return False, f"{name} timed out after {limit:g} s"
+        if proc.returncode != 0:
+            lines = (err.strip() or out.strip()).splitlines()
+            detail = f": {lines[-1]}" if lines else ""
+            return False, f"{name} exited {proc.returncode}{detail}"
+    return True, f"{len(checks)} health checks passed"
+
+
+def _health(result: str, reason: str, bid: str, booted: dict) -> dict:
+    return {
+        "result": result,
+        "reason": reason,
+        "boot_id": bid,
+        "commit": booted["checksum"],
+        "serial": booted["serial"],
+        "at": now(),
+    }
+
+
+def cmd_check(argv: list[str]) -> int:
+    if argv:
+        raise UsageError("usage: cultureos-trialboot check")
+    state = load_state()
+    deps = deployments()
+    trial = trial_of(state, deps)
+    if trial is None:
+        log("not a trial boot; no health gate")
+        reconcile(state, deps)
+        return 0
+    bid = boot_id()
+    state["trial_boot_id"] = bid
+    save_state(state)
+    ok, reason = run_checks()
+    state["health"] = _health("pass" if ok else "fail", reason, bid, trial)
+    save_state(state)
+    if ok:
+        log(f"trial {trial['checksum']}.{trial['serial']} healthy: {reason}")
+        return 0
+    log(f"trial {trial['checksum']}.{trial['serial']} unhealthy: {reason}")
+    request_reboot("trial deployment failed its health check; the default boots next")
+    return 1
+
+
+def cmd_health_exit(argv: list[str]) -> int:
+    if argv:
+        raise UsageError("usage: cultureos-trialboot health-exit")
+    result = os.environ.get("SERVICE_RESULT", "success")
+    state = load_state()
+    deps = deployments()
+    trial = trial_of(state, deps)
+    if trial is None:
+        return 0
+    bid = boot_id()
+    health = state.get("health") or {}
+    if health.get("boot_id") == bid and health.get("result") == "pass" and result == "success":
+        return 0
+    if health.get("boot_id") == bid and health.get("result") == "fail":
+        return 0  # check already recorded the failure and asked for the reboot
+    detail = f"{result} ({os.environ.get('EXIT_CODE', '?')}/{os.environ.get('EXIT_STATUS', '?')})"
+    state["health"] = _health("fail", f"health check unit ended with result {detail}", bid, trial)
+    save_state(state)
+    request_reboot("trial health check did not complete")
+    return 0
+
+
+# -- promote / reconcile -----------------------------------------------------------
+
+
+def cmd_promote(argv: list[str]) -> int:
+    if argv:
+        raise UsageError("usage: cultureos-trialboot promote")
+    state = load_state()
+    deps = deployments()
+    trial = trial_of(state, deps)
+    if trial is None:
+        reconcile(state, deps)
+        return 0
+    bid = boot_id()
+    health = state.get("health") or {}
+    if not (
+        health.get("result") == "pass"
+        and health.get("boot_id") == bid
+        and health.get("commit") == trial["checksum"]
+        and health.get("serial") == trial["serial"]
+    ):
+        raise Refused("no passing health check for this trial in this boot; default left unchanged")
+    index = next(i for i, d in enumerate(deps) if same(d, trial))
+    run("ostree", ["admin", "set-default", str(index)])
+    deps = deployments()
+    if not same(deps[0], trial):
+        raise EnvFail("ostree admin set-default did not make the trial the default")
+    state["status"] = "applied"
+    state["promoted_at"] = now()
+    state["reason"] = None
+    save_state(state)
+    write_outcome("applied", state)
+    log(f"promoted {trial['checksum']}.{trial['serial']} to default")
+    return 0
+
+
+def _rollback_reason(state: dict) -> str:
+    health = state.get("health") or {}
+    if health.get("result") == "fail":
+        return f"health check failed: {health.get('reason')}"
+    if health.get("result") == "pass":
+        return "the trial passed its health check but was not promoted before it rebooted"
+    if state.get("trial_boot_id"):
+        return (
+            "the trial reached user space but its health check did not finish "
+            "(hang, watchdog reset, panic or power loss)"
+        )
+    return (
+        "the trial deployment never reached the health check: kernel panic, early hang or "
+        "power loss on the trial boot, or the firmware did not honour LoaderEntryOneShot"
+    )
+
+
+def reconcile(state: dict, deps: list[dict]) -> None:
+    """On a normal boot of the default: a pending trial from an earlier boot did not
+    come back, so it rolled back. Record why and remove the trial deployment."""
+    if state.get("status") != "pending" or state.get("staged_boot_id") == boot_id():
+        return
+    booted = booted_of(deps)
+    if not same(booted, deps[0]) or booted["checksum"] == state.get("commit"):
+        return
+    reason = _rollback_reason(state)
+    for i, d in enumerate(deps):
+        if i and d["checksum"] == state.get("commit") and d["serial"] == state.get("serial"):
+            try:
+                run("ostree", ["admin", "undeploy", str(i)])
+            except EnvFail as exc:
+                log(f"could not undeploy the failed trial: {exc}")
+            break
+    state["status"] = "rolled-back"
+    state["reason"] = reason
+    state["rolled_back_at"] = now()
+    save_state(state)
+    write_outcome("rolled-back", state, reason)
+    log(f"trial {state.get('commit')} rolled back: {reason}")
+
+
+# -- deadline / status ------------------------------------------------------------
+
+
+def cmd_deadline(argv: list[str]) -> int:
+    if argv:
+        raise UsageError("usage: cultureos-trialboot deadline")
+    state = load_state()
+    deps = deployments()
+    trial = trial_of(state, deps)
+    if trial is None:
+        return 0
+    state["health"] = _health(
+        "fail", "trial boot was not promoted before the deadline", boot_id(), trial
+    )
+    save_state(state)
+    request_reboot("trial boot deadline passed")
+    return 0
+
+
+def cmd_status(argv: list[str]) -> int:
+    if argv:
+        raise UsageError("usage: cultureos-trialboot status")
+    state = load_state() or {"status": "none"}
+    print(json.dumps(state, indent=2))
+    return 0
+
+
+class UsageError(Exception):
+    """Bad command line. Exit 1."""
+
+
+COMMANDS = {
+    "stage": cmd_stage,
+    "preflight": cmd_preflight,
+    "check": cmd_check,
+    "health-exit": cmd_health_exit,
+    "promote": cmd_promote,
+    "deadline": cmd_deadline,
+    "status": cmd_status,
+}
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] not in COMMANDS:
+        log("usage: cultureos-trialboot {" + "|".join(COMMANDS) + "} [args]")
+        return 1
+    try:
+        return COMMANDS[argv[0]](argv[1:])
+    except UsageError as exc:
+        log(str(exc))
+        return 1
+    except Refused as exc:
+        print(json.dumps({"status": "refused", "kind": exc.kind, "reason": str(exc)}))
+        log(f"refused ({exc.kind}): {exc}")
+        return 1
+    except EnvFail as exc:
+        log(f"error: {exc}")
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

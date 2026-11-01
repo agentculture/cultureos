@@ -1,0 +1,3 @@
+# Serial link to the MCU. arduino-router is the only service that opens it.
+ARDUINO_ROUTER_SERIAL_PORT="/dev/ttySTM0"
+ARDUINO_ROUTER_SERIAL_BAUDRATE="115200"

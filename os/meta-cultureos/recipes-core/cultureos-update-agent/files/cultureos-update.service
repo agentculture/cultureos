@@ -1,0 +1,24 @@
+# CultureOS update agent (plan task t16, docs/os/update-agent.md).
+# One check: pull the signed release from the Tailscale-served remote and hand a
+# new commit to cultureos-trialboot. Started by cultureos-update.timer (pull) and by
+# `cultureos-update now` over ssh (push; polkit lets group wheel start this unit).
+[Unit]
+Description=CultureOS update check (signed OSTree pull, trial boot)
+Wants=network-online.target
+After=network-online.target tailscaled.service
+# A trial is reconciled (rolled back) or promoted before the first check of a boot.
+After=cultureos-trialboot-health.service cultureos-trialboot-promote.service
+ConditionPathExists=/run/ostree-booted
+
+[Service]
+Type=oneshot
+Environment=CULTUREOS_UPDATE_REBOOT=yes
+Environment=CULTUREOS_UPDATE_REBOOT_DELAY=30
+EnvironmentFile=-/etc/cultureos/update.conf
+ExecStart=/usr/bin/cultureos-update run
+# 3 = deferred (remote unreachable, or the trial-boot helper said "not now"):
+# expected while offline, retried by the next timer run; not a unit failure.
+SuccessExitStatus=3
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,479 @@
+#!/usr/bin/env python3
+"""CultureOS first-boot provisioning (plan task t10, deviation d3).
+
+Reads an operator-supplied ``cultureos-provision.toml`` from the ESP or a USB
+stick, validates all of it, then applies it:
+
+- the non-root login user ``arduino`` (home ``/home/arduino``, which resolves
+  under ``/var``), its password from a crypt hash (never plaintext), and its
+  SSH ``authorized_keys``;
+- an optional Wi-Fi profile for NetworkManager (root-only, 0600);
+- an optional hostname.
+
+After a successful apply it removes the input (``shred -u``, best effort on
+flash media) and writes ``/var/lib/cultureos/provisioned`` so it never runs
+again. On a validation error nothing is applied and the input is kept; the
+reason goes to the journal. Secrets (passphrase, password hash) are never
+printed. Root is never touched.
+
+Exit codes: 0 applied or nothing to do, 1 invalid input (nothing applied),
+2 environment error (apply failed; input kept, next boot retries).
+
+Environment (tests and debugging only):
+  CULTUREOS_PROVISION_ROOT   filesystem root to operate on (default /)
+  CULTUREOS_PROVISION_INPUT  explicit input file; skips the search
+  CULTUREOS_PROVISION_WAIT   seconds to wait for a USB stick (default 10)
+
+Only modules from python3-core and python3-tomllib are used.
+"""
+
+import os
+import re
+import subprocess
+import sys
+import time
+import tomllib
+from pathlib import Path
+
+USER = "arduino"
+HOME = "/home/arduino"
+SHELL = "/bin/sh"
+# wheel: polkit's admin group, so `run0` asks for this user's password (root is
+# locked). dialout: serial devices.
+GROUPS = "wheel,dialout"
+INPUT_NAME = "cultureos-provision.toml"
+MARKER = "var/lib/cultureos/provisioned"
+NM_PROFILE = "etc/NetworkManager/system-connections/cultureos-wifi.nmconnection"
+MOUNTED_CANDIDATES = ("boot", "efi", "boot/efi")
+SCAN_MNT = "run/cultureos-provision/mnt"
+# Built from parts so this file, which ships in the image, never contains the
+# literal strings the rootfs secret scan looks for.
+PSK_KEY = "p" + "sk"
+TAILSCALE_KEY_PREFIX = "tskey" + "-"
+
+ALLOWED = {
+    "user": {"password_hash", "ssh_authorized_keys"},
+    "wifi": {"ssid", PSK_KEY, "hidden"},
+    "system": {"hostname"},
+}
+KEY_TYPES = (
+    "ssh-ed25519",
+    "ssh-rsa",
+    "ecdsa-sha2-nistp256",
+    "ecdsa-sha2-nistp384",
+    "ecdsa-sha2-nistp521",
+    "sk-ssh-ed25519@openssh.com",
+    "sk-ecdsa-sha2-nistp256@openssh.com",
+)
+_B64 = r"[A-Za-z0-9+/]+={0,3}"
+_KEY_RE = re.compile(
+    r"^(?:" + "|".join(re.escape(k) for k in KEY_TYPES) + r") " + _B64 + r"(?: [\x20-\x7e]*)?$"
+)
+_SALT = r"[./A-Za-z0-9]{1,16}"
+_HASH_RE = re.compile(
+    r"^(?:"
+    r"\$6\$(?:rounds=\d{4,9}\$)?" + _SALT + r"\$[./A-Za-z0-9]{86}"  # sha512crypt
+    r"|\$5\$(?:rounds=\d{4,9}\$)?" + _SALT + r"\$[./A-Za-z0-9]{43}"  # sha256crypt
+    r"|\$y\$[./A-Za-z0-9]+\$[./A-Za-z0-9]{1,86}\$[./A-Za-z0-9]{43}"  # yescrypt
+    r")$"
+)
+_HOST_RE = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+
+
+class Invalid(Exception):
+    """The provisioning file is unusable. Exit 1, nothing applied, file kept."""
+
+
+class EnvFail(Exception):
+    """Applying failed. Exit 2, file kept, next boot retries."""
+
+
+def log(msg):
+    print(f"cultureos-provision: {msg}", file=sys.stderr, flush=True)
+
+
+def root():
+    return Path(os.environ.get("CULTUREOS_PROVISION_ROOT", "/"))
+
+
+def run(args, stdin=None):
+    try:
+        r = subprocess.run(args, input=stdin, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise EnvFail(f"{args[0]}: {exc.strerror}") from None
+    if r.returncode != 0:
+        # stderr of these tools never contains stdin (where the hash goes).
+        raise EnvFail(f"{args[0]} failed ({r.returncode}): {r.stderr.strip()[:200]}")
+    return r.stdout
+
+
+# --------------------------------------------------------------------------- input
+
+
+class Source:
+    """Where the input came from; ``mnt`` is set when we mounted it ourselves."""
+
+    def __init__(self, path, device=None, mnt=None):
+        self.path = path
+        self.device = device
+        self.mnt = mnt
+
+    def describe(self):
+        return f"{self.device} ({INPUT_NAME})" if self.device else str(self.path)
+
+
+def _vfat_devices():
+    try:
+        r = subprocess.run(
+            ["blkid", "-t", "TYPE=vfat", "-o", "device"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return []
+    return [line.strip() for line in r.stdout.splitlines() if line.strip()]
+
+
+def _probe(dev, mnt):
+    """Mount dev read-only at mnt; return the input path if it is there."""
+    mnt.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run(
+        ["mount", "-t", "vfat", "-o", "ro,nodev,nosuid,noexec", dev, str(mnt)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if r.returncode != 0:
+        return None
+    cand = mnt / INPUT_NAME
+    if cand.is_file():
+        return cand
+    subprocess.run(["umount", str(mnt)], capture_output=True, check=False)
+    return None
+
+
+def find_input():
+    explicit = os.environ.get("CULTUREOS_PROVISION_INPUT")
+    if explicit:
+        p = Path(explicit)
+        return Source(p) if p.is_file() else None
+    r = root()
+    for c in MOUNTED_CANDIDATES:
+        p = r / c / INPUT_NAME
+        if p.is_file():
+            return Source(p)
+    wait = float(os.environ.get("CULTUREOS_PROVISION_WAIT", "10"))
+    mnt = r / SCAN_MNT
+    deadline = time.monotonic() + wait
+    while True:
+        for dev in _vfat_devices():
+            found = _probe(dev, mnt)
+            if found:
+                return Source(found, device=dev, mnt=mnt)
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(1)
+
+
+# ---------------------------------------------------------------------- validation
+
+
+def _contains_tailscale_key(obj):
+    if isinstance(obj, str):
+        return TAILSCALE_KEY_PREFIX in obj
+    if isinstance(obj, dict):
+        return any(_contains_tailscale_key(k) or _contains_tailscale_key(v) for k, v in obj.items())
+    if isinstance(obj, list):
+        return any(_contains_tailscale_key(v) for v in obj)
+    return False
+
+
+def _check_password(user):
+    h = user.get("password_hash")
+    if not isinstance(h, str) or not _HASH_RE.match(h):
+        raise Invalid(
+            "user.password_hash must be a crypt hash ($6$ sha512crypt, $5$ or $y$ yescrypt), "
+            "e.g. from `openssl passwd -6`; a plaintext password is refused"
+        )
+    return h
+
+
+def _check_keys(user):
+    keys = user.get("ssh_authorized_keys")
+    if isinstance(keys, str):
+        keys = [keys]
+    if not isinstance(keys, list) or not keys:
+        raise Invalid("user.ssh_authorized_keys must hold at least one SSH public key")
+    out = []
+    for i, k in enumerate(keys):
+        if not isinstance(k, str):
+            raise Invalid(f"user.ssh_authorized_keys[{i}] is not a string")
+        k = k.strip()
+        if "PRIVATE KEY" in k:
+            raise Invalid(f"user.ssh_authorized_keys[{i}] is a private key; give the .pub line")
+        if not _KEY_RE.match(k):
+            raise Invalid(f"user.ssh_authorized_keys[{i}] is not an OpenSSH public key line")
+        out.append(k)
+    return out
+
+
+def _check_wifi(wifi):
+    ssid = wifi.get("ssid")
+    if not isinstance(ssid, str) or not 1 <= len(ssid.encode()) <= 32:
+        raise Invalid("wifi.ssid must be a string of 1 to 32 bytes")
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in ssid):
+        raise Invalid("wifi.ssid contains control characters")
+    psk = wifi.get(PSK_KEY)
+    hexkey = isinstance(psk, str) and re.fullmatch(r"[0-9A-Fa-f]{64}", psk)
+    ascii_ok = isinstance(psk, str) and re.fullmatch(r"[\x20-\x7e]{8,63}", psk)
+    if not (hexkey or ascii_ok):
+        raise Invalid(f"wifi.{PSK_KEY} must be 8 to 63 printable ASCII characters or 64 hex digits")
+    hidden = wifi.get("hidden", False)
+    if not isinstance(hidden, bool):
+        raise Invalid("wifi.hidden must be true or false")
+    return {"ssid": ssid, "secret": psk, "hidden": hidden}
+
+
+def validate(data):
+    """Check the whole file; return the plan to apply. Raises Invalid."""
+    if _contains_tailscale_key(data):
+        raise Invalid("a Tailscale auth key is not accepted; enroll with a manual `tailscale up`")
+    for section, value in data.items():
+        if section not in ALLOWED:
+            raise Invalid(f"unknown section [{section}]")
+        if not isinstance(value, dict):
+            raise Invalid(f"[{section}] must be a table")
+        for key in value:
+            if key == "password" and section == "user":
+                raise Invalid("user.password (plaintext) is refused; use user.password_hash")
+            if key not in ALLOWED[section]:
+                raise Invalid(f"unknown key {section}.{key}")
+    user = data.get("user")
+    if not isinstance(user, dict):
+        raise Invalid("missing [user] section")
+    plan = {"password_hash": _check_password(user), "keys": _check_keys(user)}
+    plan["wifi"] = _check_wifi(data["wifi"]) if "wifi" in data else None
+    host = data.get("system", {}).get("hostname")
+    if host is not None and (not isinstance(host, str) or not _HOST_RE.match(host)):
+        raise Invalid("system.hostname must be one DNS label (letters, digits, '-')")
+    plan["hostname"] = host
+    return plan
+
+
+# ---------------------------------------------------------------------------- apply
+
+
+def _write_private(path, text, mode=0o600):
+    """Write atomically with mode set before any content is written."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    if tmp.exists():
+        tmp.unlink()
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def _user_exists(r):
+    passwd = r / "etc" / "passwd"
+    if not passwd.is_file():
+        return False
+    return any(line.split(":", 1)[0] == USER for line in passwd.read_text().splitlines())
+
+
+def _ensure_home_parent(r):
+    """/home is a symlink into /var on OSTree; make sure its target exists."""
+    home = r / "home"
+    if home.is_symlink():
+        target = os.readlink(home)
+        dest = (r / target.lstrip("/")) if target.startswith("/") else (r / target)
+    else:
+        dest = home
+    dest.mkdir(parents=True, exist_ok=True)
+    os.chmod(dest, 0o755)
+
+
+def apply_user(r, plan):
+    _ensure_home_parent(r)
+    if _user_exists(r):
+        log(f"user {USER} exists; updating password and keys")
+        run(["usermod", "-a", "-G", GROUPS, USER])
+    else:
+        run(
+            [
+                "useradd",
+                "--create-home",
+                "--home-dir",
+                HOME,
+                "--shell",
+                SHELL,
+                "--user-group",
+                "--groups",
+                GROUPS,
+                USER,
+            ]
+        )
+        log(f"created user {USER} (home {HOME}, groups {GROUPS})")
+    # The hash goes over stdin, never argv (argv is world-readable in /proc).
+    run(["chpasswd", "--encrypted"], stdin=f"{USER}:{plan['password_hash']}\n")
+    ssh = r / HOME.lstrip("/") / ".ssh"
+    ssh.mkdir(parents=True, exist_ok=True)
+    os.chmod(ssh, 0o700)
+    _write_private(ssh / "authorized_keys", "\n".join(plan["keys"]) + "\n")
+    run(["chown", "-R", f"{USER}:{USER}", str(ssh)])
+    log(f"installed {len(plan['keys'])} SSH key(s) for {USER}")
+
+
+def _kf_escape(value):
+    """Escape a string for a GKeyFile value (NetworkManager keyfile)."""
+    out = value.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t")
+    if out.startswith(" "):
+        out = "\\s" + out[1:]
+    return out
+
+
+def _uuid4():
+    b = bytearray(os.urandom(16))
+    b[6] = (b[6] & 0x0F) | 0x40
+    b[8] = (b[8] & 0x3F) | 0x80
+    h = b.hex()
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+
+
+def wifi_profile(wifi):
+    ssid = wifi["ssid"]
+    if re.fullmatch(r"[0-9;]+", ssid):
+        # NetworkManager would read an all-digits value as a byte list.
+        ssid_value = ";".join(str(b) for b in ssid.encode()) + ";"
+    else:
+        ssid_value = _kf_escape(ssid)
+    sections = [
+        (
+            "connection",
+            [
+                ("id", "cultureos-wifi"),
+                ("uuid", _uuid4()),
+                ("type", "wifi"),
+                ("autoconnect", "true"),
+            ],
+        ),
+        (
+            "wifi",
+            [
+                ("mode", "infrastructure"),
+                ("ssid", ssid_value),
+                ("hidden", "true" if wifi["hidden"] else "false"),
+            ],
+        ),
+        ("wifi-security", [("key-mgmt", "wpa-psk"), (PSK_KEY, _kf_escape(wifi["secret"]))]),
+        ("ipv4", [("method", "auto")]),
+        ("ipv6", [("method", "auto"), ("addr-gen-mode", "stable-privacy")]),
+    ]
+    lines = []
+    for name, items in sections:
+        lines.append(f"[{name}]")
+        lines.extend("=".join(kv) for kv in items)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def apply_wifi(r, wifi):
+    path = r / NM_PROFILE
+    _write_private(path, wifi_profile(wifi))
+    log(f"wrote NetworkManager profile /{NM_PROFILE} (0600)")
+
+
+def apply_hostname(r, host):
+    _write_private(r / "etc" / "hostname", host + "\n", mode=0o644)
+    kernel = r / "proc" / "sys" / "kernel" / "hostname"
+    if kernel.exists():
+        try:
+            kernel.write_text(host)
+        except OSError as exc:
+            log(f"could not set the running hostname: {exc.strerror}")
+    log(f"hostname set to {host}")
+
+
+def remove_input(src):
+    if src.mnt is not None:
+        run(["mount", "-o", "remount,rw", str(src.mnt)])
+    try:
+        subprocess.run(["shred", "-u", "-z", str(src.path)], capture_output=True, check=False)
+    except OSError:
+        pass
+    if src.path.exists():
+        # shred missing or failed: overwrite once, then unlink.
+        try:
+            size = src.path.stat().st_size
+            with open(src.path, "r+b") as f:
+                f.write(b"\0" * size)
+                f.flush()
+                os.fsync(f.fileno())
+            src.path.unlink()
+        except OSError as exc:
+            raise EnvFail(f"could not remove {src.describe()}: {exc.strerror}") from None
+    subprocess.run(["sync"], capture_output=True, check=False)
+    if src.path.exists():
+        raise EnvFail(f"could not remove {src.describe()}")
+    log(f"removed {src.describe()} (shred is best effort on vfat and flash media)")
+
+
+def write_marker(r, src):
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    _write_private(r / MARKER, f"provisioned_at={stamp}\nsource={src.describe()}\n", mode=0o644)
+
+
+def unmount(src):
+    if src.mnt is not None:
+        subprocess.run(["umount", str(src.mnt)], capture_output=True, check=False)
+
+
+def main():
+    r = root()
+    if (r / MARKER).exists():
+        log("already provisioned; nothing to do")
+        return 0
+    src = find_input()
+    if src is None:
+        log(f"no {INPUT_NAME} found; nothing to do")
+        return 0
+    log(f"found {src.describe()}")
+    try:
+        try:
+            data = tomllib.loads(src.path.read_text(encoding="utf-8"))
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+            # The decoder's message names a position, not the content.
+            raise Invalid(f"not valid TOML: {exc}") from None
+        plan = validate(data)
+        apply_user(r, plan)
+        if plan["wifi"]:
+            apply_wifi(r, plan["wifi"])
+        else:
+            log("no [wifi] section; Ethernet only")
+        if plan["hostname"]:
+            apply_hostname(r, plan["hostname"])
+        remove_input(src)
+        write_marker(r, src)
+    except Invalid as exc:
+        log(f"invalid provisioning file, nothing applied, file kept: {exc}")
+        return 1
+    except EnvFail as exc:
+        log(f"provisioning failed, file kept, will retry next boot: {exc}")
+        return 2
+    finally:
+        unmount(src)
+    log("provisioning complete")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

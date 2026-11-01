@@ -1,0 +1,14 @@
+[Unit]
+Description=CultureOS USB device-mode gadget (two CDC-ACM serial ports)
+Documentation=file:/usr/share/doc/cultureos-local-access/local-access.md
+After=sys-kernel-config.mount
+Wants=sys-kernel-config.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/cultureos-usb-gadget start
+ExecStop=/usr/bin/cultureos-usb-gadget stop
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+// CultureOS update agent (plan task t16, docs/os/update-agent.md).
+// Members of group wheel may START cultureos-update.service without a password,
+// so `cultureos-update now` works unattended over ssh (the push path). Nothing
+// else: no stop, restart, enable or mask, and no other unit; run0 and every
+// other systemd action keep polkit's default (admin authentication).
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "cultureos-update.service" &&
+        action.lookup("verb") == "start" &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});

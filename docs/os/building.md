@@ -95,14 +95,54 @@ upstream already enables OSTree boot counting with 3 tries.
 ## The image recipe
 
 `cultureos-image.bb` requires the upstream `qcom-console-image` (minimal qcom
-image plus ssh server and base utilities) and adds `CULTUREOS_PACKAGES`,
-which is empty. The integration task (t19) is the only task that fills it.
-Recipe tasks add their recipe directory under `os/meta-cultureos/recipes-*/`
-and do not edit the image recipe.
+image plus ssh server and base utilities) and installs `CULTUREOS_PACKAGES`.
+The integration task (t19) is the only task that edits it:
 
-The upstream base image still carries upstream's default root access (an
-empty root password via `ci/base.yml` and a fixed root password from
-`qcom-minimal-image`). Hardening that is the security task's job (t12).
+| Package | What it brings | Doc |
+|---------|----------------|-----|
+| `arduino-router` | MCU bridge for sketches | [arduino-router.md](arduino-router.md) |
+| `tailscale` `tailscaled` | tailnet; enrollment is a manual `tailscale up` | [tailscale.md](tailscale.md) |
+| `cultureos-provision` | first-boot `arduino` user, SSH key, Wi-Fi | [provisioning.md](provisioning.md) |
+| `cultureos-local-access` | USB CDC-ACM and UART login consoles | [local-access.md](local-access.md) |
+| `cultureos-security` | key-only sshd, signed OSTree remote | [security.md](security.md) |
+| `culture-node` | Culture mesh node (pulls in `python3-culture`) | [culture-node.md](culture-node.md) |
+| `python3-cultureos` | the `cultureos` CLI (`cultureos os status`) | [update-state.md](update-state.md) |
+| `cultureos-trialboot` | one-shot trial boot, watchdog, health-gated promotion | [rollback.md](rollback.md) |
+| `cultureos-update-agent` | hourly pull plus `cultureos-update now` | [update-agent.md](update-agent.md) |
+
+It also hardens the upstream base image:
+
+- `IMAGE_FEATURES:remove` drops `allow-empty-password empty-root-password
+  allow-root-login` (added by meta-qcom `ci/base.yml` and
+  `qcom-minimal-image`), so `sshd_config` is not rewritten to allow root or
+  empty passwords.
+- `EXTRA_USERS_PARAMS = "usermod -L root;"` replaces `qcom-minimal-image`'s
+  fixed, publicly documented root password: root is locked. Logins are the
+  provisioned `arduino` user (in `wheel`, admin through `run0`).
+- `PACKAGE_INSTALL:remove` drops adbd, which `image-adbd` installs and which
+  has adb authorization disabled in meta-oe (deviation d3).
+
+`conf/distro/cultureos.conf` requires `include/cultureos-trialboot.inc`
+(`panic=N` on the OSTree kernel command line). The kernel has `CONFIG_TUN=y`;
+Tailscale uses userspace WireGuard, so no extra kernel modules are needed.
+
+### Image audit
+
+`os/scripts/audit-image.sh <rootfs dir or *.ostree.tar.zst>` checks a built
+image: nothing but directories and symlinks under `/var` and `/home` (OSTree
+does not carry `/var` content across deployments), CultureOS units keep state
+under `/var`, no `tskey-` anywhere, no uncommented `psk=` outside ELF binaries
+(deviation d6), no private-key blocks or baked SSH host keys, root locked and
+no empty passwords. Exit 0 clean, 1 findings, 2 environment error.
+
+### Known follow-up: system users after OTA (risk r14)
+
+First-boot provisioning adds the `arduino` user, so `/etc/passwd` and
+`/etc/shadow` become locally modified and OSTree's three-way `/etc` merge keeps
+the board's copies. A system user that a later image adds at build time (the
+way `culture` and `arduino-router` are added today) would then be missing after
+an update. Any recipe that adds a system user in a later release needs a
+`sysusers.d` entry (or the image needs nss-altfiles) before that release ships.
 
 ## Shared build dir and caches
 

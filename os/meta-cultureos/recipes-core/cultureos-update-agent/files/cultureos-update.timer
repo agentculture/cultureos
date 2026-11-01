@@ -1,0 +1,21 @@
+# Pull path of the CultureOS update agent (docs/os/update-agent.md).
+# Interval: hourly, at a fixed per-board offset in the first 15 minutes of the
+# hour, so consecutive checks are exactly one interval apart and a fleet does not
+# hit the release server at once. Change it with a drop-in, for example
+# /etc/systemd/system/cultureos-update.timer.d/interval.conf:
+#   [Timer]
+#   OnCalendar=
+#   OnCalendar=*:0/15
+#   RandomizedDelaySec=5min
+[Unit]
+Description=Hourly CultureOS update check
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=15min
+FixedRandomDelay=true
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

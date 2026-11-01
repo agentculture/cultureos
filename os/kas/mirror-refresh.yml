@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/siemens/kas/master/kas/schema-kas.json
+#
+# Used only by os/scripts/refresh-mirror.sh --fetch: with the mirror directory
+# as DL_DIR, ask BitBake to also write git mirror tarballs for new git sources.
+
+header:
+  version: 14
+
+local_conf_header:
+  cultureos_mirror_refresh: |
+    BB_GENERATE_MIRROR_TARBALLS = "1"

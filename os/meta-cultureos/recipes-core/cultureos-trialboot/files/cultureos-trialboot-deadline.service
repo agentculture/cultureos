@@ -1,0 +1,8 @@
+# Reboot a CultureOS trial boot that is still not promoted at the deadline
+# (decision c39, docs/os/rollback.md). No-op on a normal boot.
+[Unit]
+Description=Reboot a CultureOS trial boot that missed its promotion deadline
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/cultureos-trialboot deadline

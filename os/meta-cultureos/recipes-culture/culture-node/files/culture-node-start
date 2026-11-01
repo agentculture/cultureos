@@ -1,0 +1,86 @@
+#!/bin/sh
+# culture-node-start: run this board's Culture mesh node (the culture /
+# agentirc server) in the foreground for systemd (culture-node.service).
+#
+# All culture state lives under $HOME/.culture; the unit sets
+# HOME=/var/lib/culture, so identity, data, logs and pid files end up in
+# /var/lib/culture/.culture (persistent, outside the OSTree-managed tree).
+#
+# Settings come from the environment (the unit reads the optional
+# /var/lib/culture/node.env, see node.env.example). No secrets here: mesh
+# link passwords are an operator step (docs/os/culture-node.md).
+#
+#   CULTURE_NODE_NAME          server name on the mesh (default: uname -n)
+#   CULTURE_NODE_HOST          listen address (default: this board's tailnet
+#                              IPv4 from `tailscale ip -4`; exits 75 if none
+#                              appears in time; set 127.0.0.1 explicitly for a
+#                              local-only node; never all interfaces, plan risk r13)
+#   CULTURE_NODE_TAILNET_WAIT  seconds to wait for a tailnet address (default 60)
+#   TAILSCALE_BIN              tailscale executable (default: tailscale)
+#   CULTURE_NODE_PORT          IRC port (default: 6667)
+#   CULTURE_NODE_WEBHOOK_PORT  webhook HTTP port (default: 7680)
+#   CULTURE_NODE_MESH_CONFIG   mesh.yaml; used only if it exists
+#                              (default: $HOME/.culture/mesh.yaml)
+#   CULTURE_NODE_EXTRA_ARGS    extra `culture server start` arguments
+#   CULTURE_BIN                culture executable (default: culture)
+#
+# Exit 75 (EX_TEMPFAIL) when no tailnet address appears and no host is set: the
+# unit retries indefinitely instead of silently staying on loopback.
+# Exit 78 (EX_CONFIG, culture's "permanent" code; the unit does not restart
+# on it) for an invalid node name.
+set -eu
+
+state="${HOME:?HOME must be set}/.culture"
+name="${CULTURE_NODE_NAME:-$(uname -n)}"
+
+# culture uses the name in pid file names and as an IRC server name.
+case "$name" in
+  "" | .* | *[!A-Za-z0-9._-]*)
+    echo "culture-node-start: invalid CULTURE_NODE_NAME '$name' (allowed: A-Z a-z 0-9 . _ -, not starting with .)" >&2
+    exit 78
+    ;;
+esac
+
+mkdir -p "$state"
+
+# systemd runs exactly one instance of this unit. A pid file left behind by
+# an unclean shutdown could name a live, unrelated process after a reboot
+# and make culture refuse to start ("already running").
+rm -f "$state/pids/server-$name.pid"
+
+mesh="${CULTURE_NODE_MESH_CONFIG:-$state/mesh.yaml}"
+
+# Listen on the tailnet only (r13). The webhook port already binds 127.0.0.1
+# (agentirc); this covers the IRC port. Until the board is enrolled
+# (`tailscale up`, a manual operator step) there is no tailnet address: fail
+# with 75 so systemd keeps retrying (a node silently on loopback would never
+# be retried). An explicit CULTURE_NODE_HOST wins, with no waiting.
+host="${CULTURE_NODE_HOST:-}"
+if [ -z "$host" ]; then
+  waited=0
+  while :; do
+    host="$("${TAILSCALE_BIN:-tailscale}" ip -4 2>/dev/null | head -n 1 || true)"
+    [ -n "$host" ] && break
+    [ "$waited" -ge "${CULTURE_NODE_TAILNET_WAIT:-60}" ] && break
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if [ -z "$host" ]; then
+    echo "culture-node-start: no tailnet address after ${CULTURE_NODE_TAILNET_WAIT:-60}s (is tailscale up?); exiting 75 so systemd retries. Set CULTURE_NODE_HOST=127.0.0.1 for a local-only node." >&2
+    exit 75
+  fi
+fi
+
+set -- server start --foreground \
+  --name "$name" \
+  --host "$host" \
+  --port "${CULTURE_NODE_PORT:-6667}" \
+  --webhook-port "${CULTURE_NODE_WEBHOOK_PORT:-7680}" \
+  --data-dir "$state/data"
+if [ -f "$mesh" ]; then
+  set -- "$@" --mesh-config "$mesh"
+fi
+
+# Word splitting of CULTURE_NODE_EXTRA_ARGS is intended (a flag list).
+# shellcheck disable=SC2086
+exec "${CULTURE_BIN:-culture}" "$@" ${CULTURE_NODE_EXTRA_ARGS:-}

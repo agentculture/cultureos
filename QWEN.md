@@ -123,8 +123,17 @@ prep), `os/scripts/capture-baseline.sh` + `docs/os/board-baseline.md`, and the
 `docs/plans/2026-11-01-ventuno-q-cultureos-ota.md`. The `meta-cultureos`
 layer skeleton, the pinned kas manifest `os/kas/cultureos.yml` (+ lock) and
 the shared, flock-serialized build wrapper `os/scripts/bb.sh` are on disk
-(`docs/os/building.md`); every Yocto build goes through `bb.sh`. CultureOS
-packages and the release pipeline are (planned).
+(`docs/os/building.md`); every Yocto build goes through `bb.sh`.
+`cultureos-image` integrates every CultureOS recipe under
+`os/meta-cultureos/recipes-*/` (arduino-router, tailscale, first-boot
+provisioning, login consoles, hardening, culture node, trial-boot rollback,
+update agent), and `os/scripts/audit-image.sh` audits a built image. The
+release side: `os/scripts/bundle-release.sh`, `os/scripts/publish-ostree.sh`
+(signed OSTree repo on the Spark), `os/scripts/refresh-mirror.sh` (offline
+builds) and the culture-rules release workflow in `os/release/culture-rules/`.
+Each has a doc under `docs/os/`. Nothing has run on the board yet: the NVMe
+install, the eMMC rescue agent and hardware validation (plan tasks t20-t22)
+are (planned) until the NVMe arrives.
 
 ## Layout
 

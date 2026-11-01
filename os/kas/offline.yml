@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/siemens/kas/master/kas/schema-kas.json
+#
+# BB_NO_NETWORK = "1": any fetch that is not satisfied from DL_DIR or the
+# mirror (os/kas/mirror.yml) fails instead of reaching the network. Stack it
+# after mirror.yml; see docs/os/reproducibility.md.
+
+header:
+  version: 14
+
+local_conf_header:
+  cultureos_offline: |
+    BB_NO_NETWORK = "1"
+
+    # meta-qcom's two kernel recipes carry an unselected "devupstream" variant
+    # whose SRCREV is ${AUTOREV}. BitBake resolves that with `git ls-remote`
+    # while *parsing*, selected or not, which fails offline. Pin it to a fixed
+    # revision (the linux-qcom 6.18 pin of the manifest's meta-qcom); the
+    # variants are never built, so the value only has to be a valid SRCREV.
+    SRCREV:class-devupstream = "5b623976f245f1b90b9345c5c4f4a89485d4b014"
