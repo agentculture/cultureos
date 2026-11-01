@@ -68,7 +68,8 @@ def test_outcomes(fake, capsys, outcome, rc) -> None:
 def test_missing_state_is_none(fake, capsys) -> None:
     fake()
     rc, out, _ = _run(capsys, "--json")
-    assert rc == 0 and json.loads(out)["outcome"] == "none"
+    assert rc == 0
+    assert json.loads(out)["outcome"] == "none"
 
 
 def test_booted_selected_by_marker_not_position(fake, capsys) -> None:
@@ -92,42 +93,52 @@ def test_json_ostree_source(fake, capsys) -> None:
     fake(ostree=JSON_OUT, state={"outcome": "applied"})
     rc, out, _ = _run(capsys, "--json")
     data = json.loads(out)
-    assert rc == 0 and data["booted"]["version"] == "0.4.0"
+    assert rc == 0
+    assert data["booted"]["version"] == "0.4.0"
     assert data["deployments"][1]["rollback"] is True
 
 
 def test_text_output_degraded(fake, capsys) -> None:
     fake(state={"outcome": "failed", "reason": "fetch error"})
     rc, out, err = _run(capsys)
-    assert rc == 1 and err == ""
-    assert "degraded" in out and "failed" in out and "fetch error" in out
+    assert rc == 1
+    assert err == ""
+    assert "degraded" in out
+    assert "failed" in out
+    assert "fetch error" in out
 
 
 def test_not_ostree_env_error(fake, capsys) -> None:
     fake(ostree=None)
     rc, out, err = _run(capsys)
-    assert rc == 2 and out == ""
-    assert "not an OSTree system" in err and "hint:" in err and "Traceback" not in err
+    assert rc == 2
+    assert out == ""
+    assert "not an OSTree system" in err
+    assert "hint:" in err
+    assert "Traceback" not in err
 
 
 def test_not_ostree_json_error(fake, capsys) -> None:
     fake(ostree="nothing useful here\n")
     rc, _, err = _run(capsys, "--json")
-    assert rc == 2 and json.loads(err)["code"] == 2
+    assert rc == 2
+    assert json.loads(err)["code"] == 2
 
 
 def test_ostree_nonzero_exit(fake, monkeypatch, capsys) -> None:
     fake()
     monkeypatch.setenv("CULTUREOS_OSTREE_STATUS_CMD", "false")
     rc, _, err = _run(capsys)
-    assert rc == 2 and "exited 1" in err
+    assert rc == 2
+    assert "exited 1" in err
 
 
 @pytest.mark.parametrize("bad", ["{not json", json.dumps({"outcome": "weird"}), "[]"])
 def test_bad_state_file(fake, capsys, bad) -> None:
     fake(state=bad)
     rc, _, err = _run(capsys)
-    assert rc == 2 and "update state" in err
+    assert rc == 2
+    assert "update state" in err
 
 
 @pytest.mark.parametrize("bad", ["{not json", json.dumps({"x": 1})])
@@ -208,7 +219,8 @@ def test_staged_text_deployment_is_reported(fake, capsys) -> None:
     fake(ostree="  cultureos 77aa11bb.0 (staged)\n* cultureos 3f2a9c1d.0\n", state=None)
     _, out, _ = _run(capsys, "--json")
     staged = json.loads(out)["deployments"][0]
-    assert staged["staged"] is True and staged["pending"] is True
+    assert staged["staged"] is True
+    assert staged["pending"] is True
 
 
 def test_staged_json_deployment_is_reported(fake, capsys) -> None:
@@ -224,7 +236,8 @@ def test_staged_json_deployment_is_reported(fake, capsys) -> None:
     )
     _, out, _ = _run(capsys, "--json")
     staged = json.loads(out)["deployments"][0]
-    assert staged["staged"] is True and staged["pending"] is True
+    assert staged["staged"] is True
+    assert staged["pending"] is True
 
 
 def test_no_booted_deployment_is_env_error(fake, capsys) -> None:

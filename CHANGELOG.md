@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `os/scripts/install-flasher.sh` and `docs/os/recovery.md`: EDL recovery prep with `arduino-flasher-cli` (jumper, udev rule, reflash-to-official-image path).
 - `os/scripts/capture-baseline.sh` and `docs/os/board-baseline.md`: measured factory state of the board (eMMC layout, UEFI boot entries, watchdog, kernel).
 - `os/meta-cultureos/` layer (distro `cultureos` on `qcom-distro-sota`, no Uptane client, systemd-boot kept; `cultureos-image` with a `CULTUREOS_PACKAGES` slot), `os/kas/cultureos.yml` pinning all 12 upstream repos plus `cultureos.lock.yml`, and `os/scripts/bb.sh` (flock-serialized shared build with shared `DL_DIR`/`SSTATE_DIR`). First `cultureos-image` build: exit 0, ~57 min warm, OSTree commit tarball + ota-ext4 produced, no aktualizr (`docs/os/building.md`).
+- CI gates: `tests/test_file_length_limit.py` (no tracked source file over 1000 physical lines; cited from colleague) and `scripts/sonar-pr-issues.py` + a `SonarCloud unresolved issues` CI step (fails a PR with any OPEN/CONFIRMED SonarCloud issue, ACCEPTED pass; cited from culture-rules), with tests.
 - `docs/os/README.md` index for the OS workstream; eidetic records for board first contact and the route decision.
 
 ### Changed
@@ -23,6 +24,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- SonarCloud python:S9073 (12): composite assertions in `tests/test_os_status.py` and `tests/os/test_install_flasher.py` split into one assertion each.
 - `docs/os/reference-build.md`: oe-core and meta-selinux pins were kas-patched local commits, not upstream; `rm_work` was enabled, so the build-dir size is not a peak-disk bound.
 
 ## [0.10.1] - 2026-10-20

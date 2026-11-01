@@ -91,6 +91,9 @@ culture.yaml              mesh identity (suffix + backend)
   (`docs/skill-sources.md` has the re-sync procedure).
 - The package/CLI name `cultureos` is hard-coded in roughly a hundred
   places; a rename is a `git grep -nF cultureos` sweep, not a hand edit.
+- CI also fails on any tracked source file over 1000 lines
+  (`tests/test_file_length_limit.py`) and on any OPEN/CONFIRMED SonarCloud issue on
+  a PR (`scripts/sonar-pr-issues.py`; ACCEPTED issues pass).
 - Every PR bumps the version (`version-bump` skill); CI's `version-check` job
   blocks merge otherwise.
 - This file describes the repo **as it exists on disk today**. If you are
