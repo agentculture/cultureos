@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T06:19:47Z",
-  "updated": "2026-11-01T07:33:11Z",
+  "updated": "2026-11-01T07:46:52Z",
   "claims": [
     {
       "id": "c1",
@@ -1050,6 +1050,28 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l4",
+      "code": "provenance-missing",
+      "what": "t2 agent could not read Arduino's flash-image page and wrote the udev rule/JCTL wording without the official source; main agent then verified against arduino/docs-content (flash-image.md:48-49,82 and app-lab/1.setup/4.linux/linux.md:60-61): pins match, official rule is ATTRS{idVendor}==05c6 MODE=0666 GROUP=dialout vs t2's stricter 0660",
+      "skipped_check": "read the docs-content clone already in the session scratchpad",
+      "refs": [
+        "t2"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l5",
+      "code": "assumption-for-measurement",
+      "what": "t14 agent assumed the field names of 'ostree admin status --json' (checksum/commit, osname/stateroot, booted, pending, rollback, version) without an ostree that emits them; text-format parsing is the fallback",
+      "skipped_check": "capture real ostree admin status output from the built CultureOS image",
+      "refs": [
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": [

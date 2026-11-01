@@ -1,0 +1,43 @@
+{
+  "plan_slug": "ventuno-q-cultureos-ota",
+  "schema_version": 2,
+  "created": "2026-11-01T07:39:19Z",
+  "updated": "2026-11-01T07:46:52Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t5 additionally provides a shared DL_DIR/SSTATE_DIR outside the repo and a flock-serialized build wrapper (os/scripts/bb.sh) so wave-2 recipe agents queue their bitbake runs through one build instead of N parallel build dirs",
+      "task_ref": "t5",
+      "reason": "N parallel bitbake builds would each need a full build dir and thrash the Spark; user approved at gate 2 ('wrapper yes')",
+      "affects": [
+        "t6",
+        "t8",
+        "t9",
+        "t10",
+        "t11",
+        "t12",
+        "t13",
+        "t15",
+        "t17"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t2 acceptance criterion says 'verifies --version' but arduino-flasher-cli has no --version flag for its own version (--version selects an image to flash); the script uses the 'version' subcommand instead",
+      "task_ref": "t2",
+      "reason": "criterion was worded from the flash doc's --version image selector; the tool's own version check is the 'version' subcommand",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 2
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
