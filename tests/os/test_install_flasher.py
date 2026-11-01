@@ -49,7 +49,8 @@ def test_script_is_static_safe():
     text = SCRIPT.read_text()
     assert text.startswith("#!/usr/bin/env bash")
     assert "set -euo pipefail" in text
-    assert "0.5.4" in text and "linux-arm64" in text
+    assert "0.5.4" in text
+    assert "linux-arm64" in text
     # acceptance 3: nothing here may flash the board
     assert "flasher-cli flash" not in text
     assert '" flash' not in text

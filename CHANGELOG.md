@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-11-01
+
+### Added
+
+- CI gate: `tests/test_file_length_limit.py` fails on any tracked source file over 1000 physical lines (cited from colleague, ported from culture-nodes; grandfather list empty and shrink-only).
+- CI gate: `scripts/sonar-pr-issues.py` + a `SonarCloud unresolved issues` step fail a PR with any OPEN/CONFIRMED SonarCloud issue; ACCEPTED and FALSE_POSITIVE pass (cited from culture-rules), with tests.
+- devague records from wave 2: deviations d6/d7 approved (t10), risk r14.
+
+### Changed
+
+- Harness files (`CLAUDE.md`, `QWEN.md`, `AGENTS.override.md`, `AGENTS.colleague.md`) document both gates.
+
+### Fixed
+
+- SonarCloud python:S9073 x12: composite assertions in `tests/test_os_status.py` and `tests/os/test_install_flasher.py` split into one assertion each.
+
 ## [0.11.0] - 2026-11-01
 
 ### Added

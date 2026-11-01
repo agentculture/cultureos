@@ -92,6 +92,11 @@ from guildmaster instead.
 
 ## Conventions
 
+- **CI gates beyond lint/tests:** no tracked source file over 1000 physical lines
+  (`tests/test_file_length_limit.py`, cited from colleague; the grandfather list is
+  empty and shrink-only), and no OPEN/CONFIRMED SonarCloud issue on a PR
+  (`scripts/sonar-pr-issues.py`, cited from culture-rules; ACCEPTED or
+  FALSE_POSITIVE issues pass). Split files and fix smells rather than raising limits.
 - **Every PR bumps the version** — even docs/config/CI. Use the
   `version-bump` skill; the `version-check` CI job blocks merge otherwise.
 - **Lint**: black, isort, flake8 (line length 100), bandit, markdownlint,
