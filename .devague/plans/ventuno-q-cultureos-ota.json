@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T07:33:47Z",
-  "updated": "2026-11-01T12:04:41Z",
+  "updated": "2026-11-01T12:11:02Z",
   "targets": [
     {
       "id": "c1",
@@ -377,7 +377,7 @@
       "id": "t1",
       "summary": "M0 reference build: unmodified upstream ventuno-q image built on the aarch64 DGX Spark",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "os/scripts/build-reference.sh runs kas-container on meta-qcom-arduino ci/ventuno-q.yml (+ ci/qcom-distro.yml) and exits 0 on the Spark",
         "deploy dir contains a *.qcomflash directory with rawprogram*.xml and patch*.xml",
