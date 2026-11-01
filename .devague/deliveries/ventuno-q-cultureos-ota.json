@@ -2,7 +2,7 @@
   "plan_slug": "ventuno-q-cultureos-ota",
   "schema_version": 2,
   "created": "2026-11-01T07:39:19Z",
-  "updated": "2026-11-01T14:03:04Z",
+  "updated": "2026-11-01T14:58:01Z",
   "deviations": [
     {
       "id": "d1",
@@ -113,7 +113,7 @@
         "t10"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 8
     },
