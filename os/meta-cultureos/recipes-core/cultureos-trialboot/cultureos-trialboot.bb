@@ -16,7 +16,14 @@ SRC_URI = " \
     file://cultureos-trialboot-deadline.timer \
     file://50-cultureos-watchdog.conf \
     file://cultureos-watchdog-modules.conf \
+    file://health.d/10-sshd \
+    file://health.d/20-tailscale \
+    file://health.d/30-culture-node \
 "
+
+# The health gate's own checks (docs/os/rollback.md): ssh, the tailnet, the
+# culture node. A trial with no checks installed fails, so these must ship.
+CULTUREOS_HEALTH_CHECKS = "10-sshd 20-tailscale 30-culture-node"
 
 S = "${UNPACKDIR}"
 
@@ -51,9 +58,12 @@ do_install() {
     install -D -m 0644 ${S}/cultureos-watchdog-modules.conf \
         ${D}${nonarch_libdir}/modules-load.d/cultureos-watchdog.conf
 
-    # Health checks other packages drop in (executables, run in name order);
-    # /etc/cultureos/health.d overrides or masks them on the device.
+    # Health checks (executables, run in name order on a trial boot); other
+    # packages may add more, /etc/cultureos/health.d overrides or masks them.
     install -d -m 0755 ${D}${nonarch_libdir}/cultureos/health.d
+    for check in ${CULTUREOS_HEALTH_CHECKS}; do
+        install -m 0755 ${S}/health.d/${check} ${D}${nonarch_libdir}/cultureos/health.d/${check}
+    done
 }
 
 FILES:${PN} += " \

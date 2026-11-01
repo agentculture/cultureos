@@ -9,9 +9,14 @@
 #   sync <ref>                   clean checkout of <ref> (a sha, or origin/<branch>)
 #   build                        os/scripts/bb.sh <this checkout>
 #   bundle <version>             os/scripts/bundle-release.sh <deploy> <out> <version>
-#   publish                      os/scripts/publish-ostree.sh (sign + move the ref)
-#   trigger                      ssh <board> cultureos-update now --json
-#   status <update-json> <wait>  read the board's outcome after the trial boot
+#   publish                      os/scripts/publish-ostree.sh (sign + move the ref); prints
+#                                the published OSTree commit, the release's target
+#   trigger                      ssh <board> cultureos-update now --no-wait --json: starts
+#                                the board's update unit and returns at once
+#   status <target> <trigger-json> <wait>
+#                                poll the board until <target> is booted and the default
+#                                (exit 0), or a terminal outcome for it (exit 1-3), or
+#                                <wait> seconds pass (exit 3)
 #
 # Config: env vars, optionally from CULTUREOS_RELEASE_CONF (default
 # $HOME/.config/cultureos/release.env, the file publish-ostree.sh also reads):
@@ -19,7 +24,9 @@
 #   CULTUREOS_BUILD_ROOT    shared build root         (default: $HOME/yocto/cultureos-build)
 #   CULTUREOS_RELEASE_OUT   where bundles are written (default: $HOME/cultureos-release)
 #   CULTUREOS_RELEASE_LOGS  step logs                 (default: $CULTUREOS_RELEASE_OUT/logs)
-# Test hooks: BB_SH, BUNDLE_SH, PUBLISH_SH, SSH, SLEEP replace the programs run.
+#   CULTUREOS_RELEASE_REPO, CULTUREOS_OSTREE_REF  as for publish-ostree.sh
+#   CULTUREOS_RELEASE_POLL  seconds between board polls in `status` (default: 30)
+# Test hooks: BB_SH, BUNDLE_SH, PUBLISH_SH, SSH, SLEEP, OSTREE replace the programs run.
 #
 # stdout carries one short result (a sha, a path, the board's JSON line); tool output goes
 # to a log file. On failure stderr starts with "<step> failed (exit N); log: <path>".
@@ -48,6 +55,10 @@ BUNDLE_SH="${BUNDLE_SH:-$HERE/bundle-release.sh}"
 PUBLISH_SH="${PUBLISH_SH:-$HERE/publish-ostree.sh}"
 SSH="${SSH:-ssh}"
 SLEEP="${SLEEP:-sleep}"
+OSTREE="${OSTREE:-ostree}"
+REL="${CULTUREOS_RELEASE_REPO:-$HOME/cultureos-ostree/repo}"
+OREF="${CULTUREOS_OSTREE_REF:-ventuno-q}"
+POLL="${CULTUREOS_RELEASE_POLL:-30}"
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=20)
 
 die() { echo "release-step: $*" >&2; exit "${2:-1}"; }
@@ -104,61 +115,99 @@ case "$STEP" in
     ;;
   publish)
     run_logged "$PUBLISH_SH"
-    echo "published"
+    # The commit the board must end up on: what the release repo's ref now names.
+    COMMIT="$("$OSTREE" rev-parse --repo="$REL" "$OREF" 2>&1)" \
+      || die "publish failed: cannot read $OREF in $REL: $COMMIT"
+    [[ "$COMMIT" =~ ^[0-9a-f]{64}$ ]] || die "publish failed: $OREF in $REL is not a commit: $COMMIT"
+    echo "$COMMIT"
     ;;
   trigger)
-    board cultureos-update now --json
+    # Non-blocking: a content pull can take hours; `status` polls for the outcome.
+    board cultureos-update now --no-wait --json
     ;;
   status)
-    UPDATE_JSON=${1:-} WAIT=${2:-1200}
+    TARGET=${1:-} TRIGGER_JSON=${2:-} WAIT=${3:-16200}
+    [[ "$TARGET" =~ ^[0-9a-f]{64}$ ]] || die "bad target commit: ${TARGET:-<empty>}"
     [[ "$WAIT" =~ ^[0-9]+$ ]] || die "bad wait: $WAIT"
-    read -r RESULT TARGET REBOOT_IN < <(
-      python3 -c '
+    [[ "$POLL" =~ ^[0-9]+$ ]] || die "bad CULTUREOS_RELEASE_POLL: $POLL"
+    # A board result counts only if its run_id differs from the one on file before the
+    # trigger (previous_run_id), so a stale result never decides this release.
+    PREV="$(python3 -c '
 import json, sys
 try:
     d = json.loads(sys.argv[1])
 except ValueError:
     d = {}
-print(d.get("result") or "-", d.get("commit") or "-", int(d.get("reboot_in") or 0))
-' "$UPDATE_JSON"
-    ) || die "cannot read the update result"
-    if [ "$RESULT" != "staged" ]; then
-      # Nothing was staged (up-to-date, pending, held): one read of the board's state.
-      board cultureos os status --json
-      exit 0
-    fi
-    "$SLEEP" $((REBOOT_IN + 10))
+print((d.get("previous_run_id") if isinstance(d, dict) else None) or "-")
+' "$TRIGGER_JSON")"
     DEADLINE=$((SECONDS + WAIT))
-    LAST=""
     while :; do
-      RC=0
-      OUTPUT="$("$SSH" "${SSH_OPTS[@]}" "$BOARD" cultureos os status --json 2>&1)" || RC=$?
-      if [ "$RC" -eq 0 ] || [ "$RC" -eq 1 ]; then
-        LAST=$OUTPUT
-        VERDICT="$(python3 -c '
+      OS_RC=0
+      OS_OUT="$("$SSH" "${SSH_OPTS[@]}" "$BOARD" cultureos os status --json 2>&1)" || OS_RC=$?
+      UPD_RC=0
+      UPD_OUT="$("$SSH" "${SSH_OPTS[@]}" "$BOARD" cultureos-update status --json 2>&1)" \
+        || UPD_RC=$?
+      # verdict: "applied 0 -", "fail <exit> <why>" or "wait 0 <why>"
+      read -r VERDICT CODE WHY < <(python3 -c '
 import json, sys
-d = json.loads(sys.argv[1])
-target = sys.argv[2]
-if d["booted"]["commit"] == target and d["outcome"] == "applied":
-    print("applied")
-elif d["outcome"] in ("rolled-back", "failed") and d["last_update"].get("deployed_commit") == target:
-    print("rolled-back")
-else:
-    print("waiting")
-' "$OUTPUT" "$TARGET" 2>/dev/null || echo waiting)"
-        case "$VERDICT" in
-          applied) printf '%s\n' "$OUTPUT"; exit 0 ;;
-          rolled-back)
-            echo "status failed (exit 1): the board rolled back $TARGET: $OUTPUT" >&2
-            exit 1
-            ;;
-        esac
-      fi
+
+target, prev, os_rc, os_out, upd_rc, upd_out = sys.argv[1:7]
+
+
+def load(text):
+    try:
+        d = json.loads(text)
+    except ValueError:
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def say(verdict, code, why):
+    print(verdict, code, " ".join(str(why).split()) or "-")
+    sys.exit(0)
+
+
+st = load(os_out) if os_rc in ("0", "1") else None
+if st:
+    booted = (st.get("booted") or {}).get("commit")
+    deps = st.get("deployments") or [{}]
+    default = deps[0].get("commit")
+    last = st.get("last_update") or {}
+    # Success only when the target runs AND is the default: during the trial boot it is
+    # booted but not yet promoted.
+    if booted == target and default == target:
+        say("applied", 0, "-")
+    outcome, why = st.get("outcome"), last.get("reason")
+    if outcome in ("rolled-back", "failed") and last.get("deployed_commit") == target:
+        say("fail", 1, f"the board reports {outcome} for {target}: {why}")
+board = "board " + (f"os status: booted {booted}" if st else f"os status unreadable ({os_rc})")
+res = load(upd_out) if upd_rc == "0" else None
+if not res or res.get("run_id") == prev or res.get("result") in (None, "none", "started"):
+    say("wait", 0, f"{board}; no update result since the trigger")
+kind, commit, reason = res["result"], res.get("commit"), res.get("reason")
+if kind in ("pending", "deferred"):
+    say("wait", 0, f"{board}; update {kind}: {reason}")
+if kind == "staged" and commit == target:
+    say("wait", 0, f"{board}; staged {target}, waiting for the trial boot")
+if kind in ("staged", "up-to-date") and commit != target:
+    say("fail", 1, f"board {kind} {commit}, not the release target {target}")
+if kind == "up-to-date":
+    say("wait", 0, f"{board}; up-to-date with {target}")
+code = {"held": 1, "failed": 1, "error": 2, "unreachable": 3}.get(kind, 1)
+say("fail", code, f"board update {kind} for {commit}: {reason}")
+' "$TARGET" "$PREV" "$OS_RC" "$OS_OUT" "$UPD_RC" "$UPD_OUT")
+      case "$VERDICT" in
+        applied) printf '%s\n' "$OS_OUT"; exit 0 ;;
+        fail)
+          echo "status failed (exit $CODE): $WHY" >&2
+          exit "$CODE"
+          ;;
+      esac
       if [ "$SECONDS" -ge "$DEADLINE" ]; then
-        echo "status failed (exit 3): no final outcome for $TARGET within ${WAIT}s: ${LAST:-$OUTPUT}" >&2
+        echo "status failed (exit 3): no final outcome for $TARGET within ${WAIT}s: $WHY" >&2
         exit 3
       fi
-      "$SLEEP" 15
+      "$SLEEP" "$POLL"
     done
     ;;
   *)

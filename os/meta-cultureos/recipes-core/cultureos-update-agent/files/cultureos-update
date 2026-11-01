@@ -11,16 +11,23 @@ commit to the trial-boot helper (cultureos-trialboot stage). Two ways in, one co
 Subcommands:
   run [--retry] [--json]  one update check (root; what cultureos-update.service runs)
   now [--json]            start cultureos-update.service, wait for it, print its result
+  now --no-wait [--json]  start cultureos-update.service and return at once (`started`);
+                          poll `status` for the result (the release workflow does)
   status [--json]         print the result of the last check
 
 Every check prints one result line (JSON with --json) and exits:
   0  up-to-date, staged, pending (a trial is already staged or running) or held (the
-     remote commit already failed or rolled back here; waiting for a newer one)
-  1  failed: a fetched commit failed verification, download or staging; recorded in
-     /var/lib/cultureos/update-state.json (outcome `failed`)
-  2  environment error (no ostree, not root for `run`, remote not on the tailnet, ...)
+     remote commit already failed or rolled back here; waiting for a newer one); `now
+     --no-wait` also exits 0 with `started`
+  1  failed: a fetched commit failed verification (bad signature, or older than the booted
+     commit: a downgrade), download or staging, or the board cannot stage updates at all
+     (persistent trial-boot refusal); recorded in /var/lib/cultureos/update-state.json
+     (outcome `failed`)
+  2  environment error (no ostree, not root for `run`, remote not on the tailnet, an
+     unclassified metadata pull error, ...); nothing recorded
   3  deferred: the remote is unreachable (network or Tailscale down) or the trial-boot
-     helper refused to stage now; nothing recorded, the next timer run retries
+     helper refused to stage for a reason that clears by itself; nothing recorded, the
+     next timer run retries
 Repeating a check with no new remote commit changes nothing.
 
 External commands and paths are overridable for offline tests (CULTUREOS_UPDATE_OSTREE,
@@ -65,6 +72,12 @@ NETWORK_TEXT = re.compile(
     re.IGNORECASE,
 )
 CURL_CODE = re.compile(r"While fetching \S+: \[(\d+)\]")
+DOWNGRADE_TEXT = re.compile(
+    r"Upgrade target revision '(?P<new>[0-9a-f]{64})'.*chronologically older than current "
+    r"revision '(?P<cur>[0-9a-f]{64})'",
+    re.DOTALL,
+)
+CHECKSUM = re.compile(r"\b[0-9a-f]{64}\b")
 VERIFY_TEXT = re.compile(
     r"Can't verify commit|No signatures found|ed25519:|No keys found|Failed loading|" r"signature",
     re.IGNORECASE,
@@ -247,7 +260,10 @@ def probe(url: str) -> str | None:
 
 
 def classify_pull_error(text: str) -> str:
-    """'network' (transient, retry next interval), 'verify' or 'other'."""
+    """'downgrade' (libostree's timestamp check refused an older commit), 'network'
+    (transient, retry next interval), 'verify' or 'other'."""
+    if DOWNGRADE_TEXT.search(text):
+        return "downgrade"
     m = CURL_CODE.search(text)
     if m and int(m.group(1)) in TRANSIENT_CURL_CODES:
         return "network"
@@ -287,6 +303,7 @@ EXIT = {
     "staged": 0,
     "pending": 0,
     "held": 0,
+    "started": 0,
     "failed": 1,
     "error": 2,
     "unreachable": 3,
@@ -389,6 +406,76 @@ def schedule_reboot() -> tuple[int | None, str | None]:
     return delay, None
 
 
+def pull_args(booted: str, metadata_only: bool) -> list[str]:
+    """Every pull refuses a commit older than the local ref (-T) or than the booted commit,
+    so an older, validly signed commit (a replay or a downgrade) is never fetched in full or
+    staged. Commit signatures are verified by the remote config (sign-verify=true)."""
+    args = ["pull", "--timestamp-check", f"--timestamp-check-from-rev={booted}"]
+    if metadata_only:
+        args.append("--commit-metadata-only")
+    return [*args, REMOTE, BRANCH]
+
+
+def pull_failure(r: subprocess.CompletedProcess, booted: str, commit: str | None, base: dict):
+    """Classify a failed pull. Returns a result; records `failed` where it must."""
+    text = r.stderr + r.stdout
+    msg = detail(r)
+    kind = classify_pull_error(text)
+    stage = "pull" if commit else "metadata pull"
+    if kind == "network":
+        log(f"{stage} failed (network), retrying next interval: {msg}")
+        return result("unreachable", msg, **base)
+    if kind == "downgrade":
+        m = DOWNGRADE_TEXT.search(text)
+        what = (
+            "booted commit"
+            if m.group("cur") == booted
+            else f"last fetched commit {m.group('cur')[:12]}"
+        )
+        reason = f"refused: older than {what} (downgrade): {msg}"
+        commit = commit or m.group("new")
+    elif kind == "verify":
+        reason = f"{stage} of {REF} failed (verify): {msg}"
+        if commit is None:
+            found = CHECKSUM.search(text)
+            commit = found.group(0) if found else None
+    elif commit is None:
+        # Neither network nor verification: not a fact about any commit. Report it and
+        # keep update-state.json (the last real outcome) as it is.
+        reason = f"{stage} of {REF} failed: {msg}"
+        log(reason)
+        return result("error", reason, **base)
+    else:
+        reason = f"{stage} of {REF} {commit} failed ({kind}): {msg}"
+    log(reason)
+    record_failed(commit, base.get("version"), booted, reason)
+    return result("failed", reason, **{**base, "commit": commit})
+
+
+def trialboot_refusal(r: subprocess.CompletedProcess) -> tuple[str, str]:
+    """(kind, reason) of a cultureos-trialboot refusal (exit 1, one JSON line on stdout).
+    A reply without a kind (an older helper) counts as transient: retry, record nothing."""
+    try:
+        reply = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        reply = {}
+    if not isinstance(reply, dict):
+        reply = {}
+    return reply.get("kind") or "transient", reply.get("reason") or detail(r)
+
+
+def refused(kind: str, why: str, booted: str, base: dict) -> dict:
+    if kind == "persistent":
+        # A board condition, not the commit's fault: no deployed_commit, so the commit is
+        # not held and is staged once the condition is fixed. Recorded once (same reason).
+        reason = f"cannot stage updates on this board: {why}"
+        log(reason)
+        record_failed(None, None, booted, reason)
+        return result("failed", reason, **base)
+    log(f"trial-boot helper refused to stage now, retrying next interval: {why}")
+    return result("deferred", why, **base)
+
+
 def check(retry: bool) -> dict:
     """One update check. Order matters: everything that can say "nothing to do" runs
     before anything that downloads or changes the system."""
@@ -408,18 +495,10 @@ def check(retry: bool) -> dict:
         log(f"remote unreachable, retrying next interval: {why}")
         return result("unreachable", why, booted_commit=booted)
 
-    # 1. Metadata only: the commit object and its signature, no content.
-    r = run("ostree", ["pull", "--commit-metadata-only", REMOTE, BRANCH], timeout=600)
+    # 1. Metadata only: the commit object, its signature and its timestamp, no content.
+    r = run("ostree", pull_args(booted, metadata_only=True), timeout=600)
     if r.returncode != 0:
-        msg = detail(r)
-        kind = classify_pull_error(r.stderr + r.stdout)
-        if kind == "network":
-            log(f"metadata pull failed (network), retrying next interval: {msg}")
-            return result("unreachable", msg, booted_commit=booted)
-        reason = f"pull of {REF} failed ({kind}): {msg}"
-        log(reason)
-        record_failed(None, None, booted, reason)
-        return result("failed", reason, booted_commit=booted)
+        return pull_failure(r, booted, None, {"booted_commit": booted})
 
     commit = run_ok("ostree", ["rev-parse", REF]).strip()
     version = commit_version(REF)
@@ -446,26 +525,24 @@ def check(retry: bool) -> dict:
                 **base,
             )
 
-    # 2. The content. Verification runs again on the full pull.
-    log(f"pulling {REF} {commit} ({version or 'no version'})")
-    r = run("ostree", ["pull", REMOTE, BRANCH], timeout=4 * 3600)
+    # 2. Can this board stage at all? Asked before the download, so a condition that
+    #    never clears by itself does not cost a full pull every interval.
+    r = run("trialboot", ["preflight"])
+    if r.returncode == 1:
+        return refused(*trialboot_refusal(r), booted, base)
     if r.returncode != 0:
-        msg = detail(r)
-        kind = classify_pull_error(r.stderr + r.stdout)
-        if kind == "network":
-            log(f"pull interrupted (network), retrying next interval: {msg}")
-            return result("unreachable", msg, **base)
-        reason = f"pull of {REF} {commit} failed ({kind}): {msg}"
-        log(reason)
-        record_failed(commit, version, booted, reason)
-        return result("failed", reason, **base)
+        raise EnvFail(f"cultureos-trialboot preflight failed ({r.returncode}): {detail(r)}")
 
-    # 3. Hand it to the trial-boot helper (docs/os/rollback.md).
+    # 3. The content. Signature and timestamp are verified again on the full pull.
+    log(f"pulling {REF} {commit} ({version or 'no version'})")
+    r = run("ostree", pull_args(booted, metadata_only=False), timeout=4 * 3600)
+    if r.returncode != 0:
+        return pull_failure(r, booted, commit, base)
+
+    # 4. Hand it to the trial-boot helper (docs/os/rollback.md).
     r = run("trialboot", ["stage", REF], timeout=3600)
     if r.returncode == 1:
-        msg = detail(r)
-        log(f"trial-boot helper refused to stage now, retrying next interval: {msg}")
-        return result("deferred", msg, **base)
+        return refused(*trialboot_refusal(r), booted, base)
     if r.returncode != 0:
         reason = f"staging {commit} failed: {detail(r)}"
         log(reason)
@@ -515,9 +592,24 @@ def cmd_run(argv: list[str], as_json: bool) -> int:
 
 
 def cmd_now(argv: list[str], as_json: bool) -> int:
-    if argv:
-        raise UsageError(f"usage: {PROG} now [--json]")
+    no_wait = "--no-wait" in argv
+    if [a for a in argv if a != "--no-wait"]:
+        raise UsageError(f"usage: {PROG} now [--no-wait] [--json]")
     before = (read_json(_result_path()) or {}).get("run_id")
+    if no_wait:
+        # Queue the start job and return: a content pull can take hours, longer than any
+        # ssh caller should hold a connection. Same polkit action (verb "start").
+        r = run("systemctl", ["--no-ask-password", "--no-block", "start", UNIT], timeout=120)
+        if r.returncode != 0:
+            raise EnvFail(f"systemctl start {UNIT}: {detail(r)}")
+        res = result(
+            "started",
+            f"{UNIT} started; `{PROG} status --json` shows its result once a run_id other "
+            "than previous_run_id appears",
+            previous_run_id=before,
+        )
+        emit(res, as_json)
+        return 0
     # Starting a oneshot unit blocks until it has run. If a timer run is in progress,
     # systemd attaches this request to it and we report that run's result.
     r = run("systemctl", ["--no-ask-password", "start", UNIT], timeout=6 * 3600)

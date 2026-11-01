@@ -1,0 +1,41 @@
+#!/bin/sh
+# CultureOS trial-boot health check (docs/os/rollback.md): the Culture mesh node runs.
+# culture-node.service is Type=simple, so "active" only means it started: it must still be
+# active CULTUREOS_HEALTH_SETTLE s later. "failed" fails at once; anything else
+# (activating, auto-restart) is waited out for up to CULTUREOS_HEALTH_WAIT s.
+# A node the operator disabled or masked in /etc is not checked.
+wait_s=${CULTUREOS_HEALTH_WAIT:-90}
+poll=${CULTUREOS_HEALTH_POLL:-2}
+settle=${CULTUREOS_HEALTH_SETTLE:-5}
+unit=culture-node.service
+enabled=$(systemctl is-enabled "$unit" 2>/dev/null)
+case "$enabled" in
+    disabled | masked)
+        echo "culture-node: $unit is $enabled by the operator; not checked"
+        exit 0
+        ;;
+esac
+waited=0
+while :; do
+    state=$(systemctl is-active "$unit" 2>/dev/null)
+    case "$state" in
+        active)
+            sleep "$settle"
+            state=$(systemctl is-active "$unit" 2>/dev/null)
+            if [ "$state" = "active" ]; then
+                echo "culture-node: $unit is active"
+                exit 0
+            fi
+            ;;
+        failed)
+            echo "culture-node: $unit failed" >&2
+            exit 1
+            ;;
+    esac
+    if [ "$waited" -ge "$wait_s" ]; then
+        echo "culture-node: $unit is ${state:-unknown}, not active, after ${wait_s} s" >&2
+        exit 1
+    fi
+    sleep "$poll"
+    waited=$((waited + poll))
+done
