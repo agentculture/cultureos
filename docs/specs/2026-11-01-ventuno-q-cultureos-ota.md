@@ -84,6 +84,7 @@
 - No human touches the board between power cycles
 - Rollback is triggered by the boot itself, not by a manual command
 - The release workflow runs as a culture-rules code-run step placed on machine 'spark' (runner role, culture-rules README:35,38,140) and its run record shows build, sign, commit and board-upgrade outcomes
+  - instruction: Run `culture-rules rules run <release-rule>` and inspect the run steps + host
 
 ## Success signals
 
@@ -180,7 +181,7 @@
 - Prepare EDL recovery now; flash/reflash CultureOS only on the NVMe when it arrives — eMMC is not reflashed pre-emptively (simpler, safer)
 - OTA server = plain signed OSTree repo on the DGX Spark served over Tailscale; publishing = committing a signed commit; no aktualizr/Uptane backend
 - Releases are driven by a culture-rules rule/workflow: build -> sign -> commit to the OSTree repo -> the board is OTA'd
-  - instruction: culture-rules rules run <release-rule>; inspect run steps + host
+  - instruction: Run `culture-rules rules run <release-rule>` and inspect the run steps + host
 
 ## Hard questions
 

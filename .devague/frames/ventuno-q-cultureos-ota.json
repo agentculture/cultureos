@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T06:19:47Z",
-  "updated": "2026-11-01T07:32:55Z",
+  "updated": "2026-11-01T07:33:11Z",
   "claims": [
     {
       "id": "c1",
@@ -690,12 +690,12 @@
           "id": "h21",
           "text": "The release workflow runs as a culture-rules code-run step placed on machine 'spark' (runner role, culture-rules README:35,38,140) and its run record shows build, sign, commit and board-upgrade outcomes",
           "status": "confirmed",
-          "instruction": ""
+          "instruction": "Run `culture-rules rules run <release-rule>` and inspect the run steps + host"
         }
       ],
       "hard_questions": [],
       "links": [],
-      "instruction": "culture-rules rules run <release-rule>; inspect run steps + host",
+      "instruction": "Run `culture-rules rules run <release-rule>` and inspect the run steps + host",
       "revisions": []
     },
     {
