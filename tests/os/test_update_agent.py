@@ -464,7 +464,8 @@ def test_network_errors_during_pull_are_deferred(b, error, where):
     b.publish(NEW)
     b.set_remote(**{where: error})
     rc, res = b.agent_json("run")
-    assert rc == 3 and res["result"] == "unreachable", res
+    assert rc == 3, res
+    assert res["result"] == "unreachable", res
     assert not b.update_state.exists()
     assert b.deploys() == []
     b.set_remote(**{where: None})
