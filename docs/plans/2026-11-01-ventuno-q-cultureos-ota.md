@@ -20,7 +20,7 @@ slug: `ventuno-q-cultureos-ota` · status: `exported` · from frame: `ventuno-q-
 - instruction: The udev rule needs sudo: print the exact one-liner for the operator instead of running it. Verify 'arduino-flasher-cli list ventunoq' works if the tool supports it offline-safe.
 - covers: c10, h7
 - acceptance:
-  - os/scripts/install-flasher.sh installs arduino-flasher-cli >= 0.5.4 (linux-arm64) into ~/.local/bin and verifies --version
+  - os/scripts/install-flasher.sh installs arduino-flasher-cli >= 0.5.4 (linux-arm64) into the operator's per-user bin dir (`INSTALL_DIR`) and verifies --version
   - docs/os/recovery.md documents JCTL pin1-GND to pin2 `FORCED_USB_BOOT_N`, barrel power then USB-C, expected lsusb 05c6:9008, the udev rule line, dialout membership, and that a reflash erases the eMMC
   - no command in this task writes to the board
 
@@ -95,9 +95,10 @@ slug: `ventuno-q-cultureos-ota` · status: `exported` · from frame: `ventuno-q-
 - depends on: t5
 - covers: c26, h11
 - acceptance:
-  - os/meta-cultureos/recipes-core/cultureos-provision/ installs a oneshot unit that reads a provisioning file (e.g. cultureos-provision.toml on the ESP or a USB stick) on first boot, writes the NetworkManager/iwd profile + the arduino user's ~/.ssh/`authorized_keys` (home under /var), then shreds the input
+  - os/meta-cultureos/recipes-core/cultureos-provision/ installs a oneshot unit that reads a provisioning file (e.g. cultureos-provision.toml on the ESP or a USB stick) on first boot, writes the NetworkManager/iwd profile + the arduino user's SSH `authorized_keys` (home under /var), then shreds the input
   - python3 scripts/scan-secrets.py passes; a test asserts the image rootfs contains no psk= or tskey- strings
   - docs/os/provisioning.md shows the file format with placeholder values only
+  - provisioning creates the non-root login user (arduino) with the authorized key and a password hash taken from the provisioning file (needed for the login consoles, d3); root stays locked
 
 ### t11 — Local no-network shell: USB gadget (adbd or CDC-ACM getty) + serial getty on ttyMSM0
 
@@ -224,3 +225,7 @@ slug: `ventuno-q-cultureos-ota` · status: `exported` · from frame: `ventuno-q-
 - [unknown_nonblocking] Obligation o13 says installing/updating CultureOS 'never modifies eMMC partitions'; the rescue agent (t21) adds files to the factory Ubuntu rootfs on eMMC - partitions/firmware untouched, but o13 wording should be confirmed against the operator's 'eMMC is flexible' (task t21)
 - [follow_up] NVMe drive not yet installed: t20-t22 cannot start until it arrives; everything before them is hardware-free (task t20)
 - [follow_up] Each PR must bump the version (version-check CI); workforce merges should land as one PR per wave or one per milestone with a single bump
+- [follow_up] target ostree in cultureos-image is built --without-ed25519-libsodium --without-openssl (tmp/work/.../ostree/2026.5 log.`do_configure`; meta-updater enables ed25519 only under cfs-signed), so the board cannot verify ed25519-signed commits: sign-verify (h24, t12) and signed pulls (t16) fail until the distro/image sets PACKAGECONFIG:append:pn-ostree = ' ed25519-libsodium' (or openssl) (task t19)
+- [unknown_nonblocking] local no-network shell (c28/h23, t11) uses upstream adbd started unconditionally; meta-oe's Debian adbd patches disable adb authorization, so physical access to the USB device port = root shell. Conflicts with t12 hardening (root locked, adbd removal proposed for t19). Needs an operator decision before t19 wires packages in. (task t19)
+- [unknown_nonblocking] culture resolves mesh link passwords via secret-tool (libsecret + Secret Service on a D-Bus session bus); the headless culture-node service has neither, so mesh links are skipped and the node starts unlinked (t13). Options: --link via 0600 env file (password in argv), ship libsecret+gnome-keyring, or an upstream culture file/systemd-credential backend. Blocks c7/h5 'appears on the mesh' until decided. (task t19)
+- [follow_up] culture-node listens on 0.0.0.0:6667 (IRC) and :7680 (webhook) by culture defaults; nothing limits them to the tailnet yet (t13). Needs a bind address or firewall rule before the image ships. (task t19)

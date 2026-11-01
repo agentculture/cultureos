@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T07:33:47Z",
-  "updated": "2026-11-01T13:01:45Z",
+  "updated": "2026-11-01T13:10:55Z",
   "targets": [
     {
       "id": "c1",
@@ -394,7 +394,7 @@
       "id": "t2",
       "summary": "Recovery prep: arduino-flasher-cli on the Spark + 05c6 udev rule + documented EDL procedure (no flashing)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "os/scripts/install-flasher.sh installs arduino-flasher-cli >= 0.5.4 (linux-arm64) into the operator's per-user bin dir (INSTALL_DIR) and verifies --version",
         "docs/os/recovery.md documents JCTL pin1-GND to pin2 FORCED_USB_BOOT_N, barrel power then USB-C, expected lsusb 05c6:9008, the udev rule line, dialout membership, and that a reflash erases the eMMC",
@@ -539,7 +539,7 @@
       "id": "t10",
       "summary": "First-boot provisioning: Wi-Fi + SSH authorized key from an operator-supplied input, stored only under /var",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "os/meta-cultureos/recipes-core/cultureos-provision/ installs a oneshot unit that reads a provisioning file (e.g. cultureos-provision.toml on the ESP or a USB stick) on first boot, writes the NetworkManager/iwd profile + the arduino user's SSH authorized_keys (home under /var), then shreds the input",
         "python3 scripts/scan-secrets.py passes; a test asserts the image rootfs contains no psk= or tskey- strings",
@@ -873,8 +873,8 @@
       "text": "target ostree in cultureos-image is built --without-ed25519-libsodium --without-openssl (tmp/work/.../ostree/2026.5 log.do_configure; meta-updater enables ed25519 only under cfs-signed), so the board cannot verify ed25519-signed commits: sign-verify (h24, t12) and signed pulls (t16) fail until the distro/image sets PACKAGECONFIG:append:pn-ostree = ' ed25519-libsodium' (or openssl)",
       "kind": "follow_up",
       "task_id": "t19",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Fixed by t12's ostree_%.bbappend (PACKAGECONFIG ed25519-libsodium, deviation d4 approved by operator): image manifest has libsodium26; image's own ostree refused unsigned/wrong-key commits and accepted a correctly signed one."
     },
     {
       "id": "r11",
