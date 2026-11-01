@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T07:33:47Z",
-  "updated": "2026-11-01T13:10:55Z",
+  "updated": "2026-11-01T13:27:58Z",
   "targets": [
     {
       "id": "c1",
@@ -895,6 +895,14 @@
     {
       "id": "r13",
       "text": "culture-node listens on 0.0.0.0:6667 (IRC) and :7680 (webhook) by culture defaults; nothing limits them to the tailnet yet (t13). Needs a bind address or firewall rule before the image ships.",
+      "kind": "follow_up",
+      "task_id": "t19",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r14",
+      "text": "creating the arduino user at first boot makes /etc/passwd,shadow,group,gshadow locally modified; OSTree's 3-way /etc merge then keeps the local copies, so system users added by later images at build time (e.g. t13's culture user in /usr/etc/passwd) will not appear after an OTA. Recipes adding system users need sysusers.d entries (or the image needs nss-altfiles).",
       "kind": "follow_up",
       "task_id": "t19",
       "resolved": false,

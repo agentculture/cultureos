@@ -2,7 +2,7 @@
   "plan_slug": "ventuno-q-cultureos-ota",
   "schema_version": 2,
   "created": "2026-11-01T07:39:19Z",
-  "updated": "2026-11-01T13:10:55Z",
+  "updated": "2026-11-01T13:33:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -79,6 +79,30 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t10 criterion 2 'image rootfs contains no psk= strings' is read as: no tskey- anywhere (binaries included); no uncommented psk= in any non-ELF file; ELF binaries exempt for psk= (listed by the test)",
+      "task_ref": "t10",
+      "reason": "upstream wpa_supplicant/wpa_cli/wpa_passphrase/hostapd binaries contain psk=%s format strings and /etc/hostapd.conf has commented #wpa_psk= examples, so the literal check can never pass; the reading still catches any baked PSK in a config/keyfile",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "t10 adds the provisioned arduino user to group wheel (polkit admin via run0, password-prompted), beyond criterion 4's 'non-root login user'",
+      "task_ref": "t10",
+      "reason": "image has no sudo; with root locked, wheel+run0 is the only admin path (e.g. run0 tailscale up, editing culture node.env); dropping it is one line",
+      "affects": [
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 7
     }
   ],
   "evidence": [],
