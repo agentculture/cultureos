@@ -1,0 +1,632 @@
+{
+  "slug": "ventuno-q-cultureos-ota",
+  "title": "ventuno-q cultureos ota",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-11-01T06:19:47Z",
+  "updated": "2026-11-01T07:16:31Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The Arduino VENTUNO Q runs CultureOS \u2014 our own pinned, reproducible Yocto image (meta-cultureos) built from this repo and installed on NVMe \u2014 reachable over Tailscale; OSTree-based OTA follows once the OS lives on NVMe, so the board ends up needing nothing but power to stay current.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Every artifact (layers, kas manifest, recipes) is pinned and lives in this repo; a clean checkout rebuilds a bit-identical-config image",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "kas lock file committed; CI/build script reproduces from clean clone",
+      "revisions": [
+        {
+          "text": "The Arduino VENTUNO Q runs CultureOS \u2014 our own pinned, reproducible image built from this repo \u2014 and updates itself over the air, so the board needs nothing but power to stay current.",
+          "kind": "announcement",
+          "reason": "User: hold OTA until NVMe exists to put the OS on; Yocto is the base"
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "Before CultureOS replaces the factory OS, a tested restore-to-official-image path exists and is documented (issue #3 'Safe deployment' + M0: recovery path tested before replacing the factory OS)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "EDL reflash to the official Ubuntu image has actually been performed once on this board and booted, before any CultureOS image is flashed",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "arduino-flasher-cli flash ventunoq run + board boots Ubuntu; log kept in docs/",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "non_goal",
+      "text": "The first goal does not ship the issue #4 appliance suite (chat UI, culture-rules, culture-library, embodiment); those are milestones A0-A3 layered on top of a booting, self-updating image",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "assumption",
+      "text": "'Our OS' means reading (b) from issue #1: a real installable Yocto image (meta-cultureos layer + pinned kas manifest, per issue #3), not the conceptual mesh-as-OS reading (a)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "OTA updates the root/system image while preserving a separate persistent data area (/var/lib/cultureos, later NVMe per issue #4), so app state such as culture-rules' MongoDB run state (culture-rules README:39) survives updates and rollbacks",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "An update and a rollback both leave /var data (incl. a test marker file) intact",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "write /var/lib/cultureos/marker, update, rollback, verify marker",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "rollout-cli is cross-repo code propagation (rollout-cli/README.md), not device OTA; the OTA mechanism is chosen from embedded update frameworks, not reused from it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "No code or workflow in rollout-cli is invoked by the OTA path",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "grep image/OTA code for rollout-cli references: none",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "The updated image boots into a supervised Culture mesh node (culture installs via 'uv tool install culture' + 'culture server start', culture/README.md:73-74) so the board is reachable on the mesh after every OTA (issue #3 M2)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "culture runs under a systemd unit that restarts it and starts at boot, and the node is visible on the mesh after reboot",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "systemctl is-enabled culture-*; mesh peer list shows cultureos after reboot",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "OTA uses OSTree via meta-updater: meta-qcom-distro's qcom-distro-sota distro (conf/distro/qcom-distro-sota.conf, ci/qcom-distro-sota.yml) is the only update framework shipped by the Qualcomm layers \u2014 no RAUC/SWUpdate/Mender found \u2014 giving atomic rootfs deployments with rollback",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The ventuno-q + qcom-distro-sota kas stack builds and produces an OSTree repo + ota-ext4 artifact",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Does the VENTUNO Q (QCS8300) boot firmware support boot_a/boot_b slots with boot-count rollback? ventuno-q.conf omits qbootctl that uno-q.conf adds ('boot firmware will switch to slot B and fail to boot otherwise') \u2014 rootfs-only OSTree rollback vs full boot-chain A/B depends on it",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User: 'q1 confirmed A/B OSTree as suggested' \u2014 OS-level rollback via OSTree deployments; boot-firmware _a/_b untouched"
+        }
+      ],
+      "links": [],
+      "instruction": "kas build of ventuno-q.yml:qcom-distro-sota.yml exit 0; ostree repo present in deploy dir",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "assumption",
+      "text": "The ventuno-q image can be built on this aarch64 DGX Spark: kas 5.5 container is multi-arch and meta-qcom CI runs arm64 jobs, but meta-qcom-arduino builds ventuno-q only on amd64 runners (.github/workflows/build-yocto.yml:118) \u2014 plausible, unproven",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Recovery = EDL reflash of the official Ubuntu image with arduino-flasher-cli >=0.5.4 (linux-arm64 build exists): JCTL pin1-GND to pin2 FORCED_USB_BOOT_N jumper, barrel power, then USB-C; shows as 05c6:9008; needs udev rule + dialout; flashing erases all data (docs-content flash-image.md)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "The flasher (linux-arm64) runs from the DGX Spark and the board enumerates as 05c6:9008 with the JCTL jumper",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "lsusb shows 05c6:9008 with jumper; arduino-flasher-cli list ventunoq works",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "MCU stays out of the OS image path: STM32H5 runs Zephyr, Linux talks to it via arduino-router on /dev/ttyACM0 (+ /var/run/arduino-router.sock); CultureOS must preserve or package arduino-router and never flash MCU firmware as part of OTA (issue #3 MCU boundary)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The CultureOS image either ships arduino-router or explicitly documents its absence; no OTA step writes MCU firmware",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "check image manifest for arduino-router; audit OTA payload for MCU firmware: none",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The board joins the tailnet (Tailscale) so it is reachable for management and OTA from anywhere, not just the home LAN \u2014 the DGX Spark is already on it (tailscale0 100.127.105.72)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "tailscaled is enabled at boot and the node keeps its tailnet identity across reboots (key expiry disabled in admin)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "Tailnet enrollment: how does the image get its Tailscale auth key without baking a secret into the image \u2014 pre-auth key provisioned at first boot (via grant?), tagged ephemeral-no node, or manual 'tailscale up' once?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User: 'I'm in and can install tailscale' \u2014 manual one-time enrollment by the operator (interactive tailscale up), no auth key baked into the image"
+        }
+      ],
+      "links": [],
+      "instruction": "reboot; tailscale status shows cultureos with same 100.x IP",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "assumption",
+      "text": "The CultureOS OS (ESP-chainloaded kernel + OSTree sysroot) lives on NVMe; the eMMC keeps the boot firmware (_a/_b, untouched) and, if UEFI can boot NVMe, the factory Ubuntu as an always-available fallback OS \u2014 so a bad CultureOS install never bricks the board",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "OS-level OTA must work on a single Linux rootfs slot: factory eMMC (59.3G) has A/B only for boot firmware (xbl/uefi/tz/hyp/dtb/aop _a/_b) but one efi (512M vfat), persist (30M), system (55.9G ext4) \u2014 OSTree deployments fit this without repartitioning; boot-firmware A/B is not touched by CultureOS OTA",
+          "kind": "assumption",
+          "reason": "User decided the OS goes on NVMe; eMMC single-slot layout no longer the OTA target"
+        }
+      ]
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Persistent data (Culture identity, Tailscale state, app data such as culture-rules' MongoDB state) lives outside the OSTree-managed OS \u2014 in OSTree's preserved /var or a separate NVMe data partition \u2014 never on the 30M eMMC persist partition",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "The OSTree-managed tree contains no mutable app data; data paths resolve under /var or the NVMe data mount",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "ostree admin status + findmnt; data dirs not under /usr",
+      "revisions": [
+        {
+          "text": "Persistent app data cannot live on the 30M persist partition; until the issue #4 NVMe is attached (none present: lsblk shows only mmcblk0) data lives in OSTree's preserved /var on eMMC",
+          "kind": "requirement",
+          "reason": "OS now on NVMe; data location follows"
+        }
+      ]
+    },
+    {
+      "id": "c15",
+      "kind": "decision",
+      "text": "Route A chosen: CultureOS is a Yocto image (meta-cultureos) per issue #3; no interim CultureOS layer on the factory Ubuntu (the factory Ubuntu only hosts today's remote access: Wi-Fi, Tailscale, SSH)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q3",
+          "text": "Route A (Yocto image now) or route B (layer on factory Ubuntu first, Yocto later) for the first OTA-capable CultureOS?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User: 'Yocto is great and we may want to stay with it and customize as cultureos later' \u2014 route A: Yocto (issue #3) is the base; no interim Ubuntu layer"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Two routes to 'our OS' exist and must be chosen explicitly: (A) Yocto meta-cultureos image per issue #3 (clean, reproducible, OSTree OTA; reflash erases factory Ubuntu + Arduino App Lab stack), or (B) interim CultureOS layer on the factory Ubuntu 24.04 (apt/deb + systemd units + unattended-upgrades already running; fast, keeps arduino-router/App Lab, but not 'our image')",
+          "kind": "assumption",
+          "reason": "User resolved q3: Yocto"
+        }
+      ]
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "OTA is deferred until the NVMe is installed; the OS will be installed on NVMe, and OTA is built on top of that layout",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "Yocto is the long-term base for CultureOS (issue #3 route), customized into a CultureOS distro over time",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "assumption",
+      "text": "The QCS8275 UEFI (uefi_a/_b on eMMC) can boot a kernel/rootfs from NVMe \u2014 or at minimum chain to an NVMe rootfs while the ESP stays on eMMC; unverified on VENTUNO Q (no NVMe present to test)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q4",
+          "text": "Can VENTUNO Q's UEFI boot from NVMe, or must ESP/kernel stay on eMMC with only the rootfs on NVMe? Determines image partitioning and where OSTree's sysroot lives",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "User: 'q4 yes, confirmed by another project of someone else' \u2014 VENTUNO Q UEFI booting from NVMe is reported working by an external project (not yet verified on this board); per user 'q4 as suggested': build the safe baseline first (ESP on eMMC, OS root on NVMe), switch to full NVMe boot once verified here"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "audience",
+      "text": "The operator (Ori), who wants the VENTUNO Q to be a hands-off CultureOS box on power only, and mesh agents that reach it as a Culture node",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Both readers are served: operator via ssh/Tailscale, agents via the mesh node",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "doc review",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "before_state",
+      "text": "Today the VENTUNO Q runs the factory Ubuntu 24.04 + Arduino App Lab stack on eMMC; it is reachable (Ethernet .221, Wi-Fi .222, Tailscale 'cultureos', ssh arduino) but nothing on it is CultureOS, reproducible, or self-updating",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "Matches today's measured state of the board",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "ssh arduino 'cat /etc/os-release; lsblk'",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "why_it_matters",
+      "text": "A Culture node that needs hands-on maintenance does not scale; a pinned, reproducible image that updates itself is the foundation issues #3 and #4 build on",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "Issues #3 and #4 both depend on a booting, updatable image",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "read issue #3 milestones, #4 A3",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "after_state",
+      "text": "The board boots a CultureOS Yocto image from NVMe, comes up on Ethernet/Wi-Fi and Tailscale with no hands-on steps, runs a supervised Culture node, and later receives OSTree updates with automatic rollback",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "Each clause of the after-state is checked by a success signal (c23-c25) or honesty condition",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "trace table in the plan",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "success_signal",
+      "text": "Milestone 0: the unmodified upstream ventuno-q reference image builds on the aarch64 DGX Spark with exit 0 and produces a *.qcomflash directory",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "The build ran on the Spark itself (aarch64), not an x86 machine",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "uname -m in the build log = aarch64",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "success_signal",
+      "text": "After 3 consecutive power cycles with no keyboard/monitor, ssh arduino (Tailscale) succeeds within 120 s each time on the CultureOS image",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "No human touches the board between power cycles",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "test protocol notes",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "success_signal",
+      "text": "OTA: one update deployed over Tailscale reboots into the new OSTree deployment, and a deliberately broken deployment rolls back to the previous one within 1 reboot cycle without hands-on access",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "Rollback is triggered by the boot itself, not by a manual command",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "use greenboot/boot-count style check, not ostree admin rollback by hand",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Connectivity survives the reflash: the CultureOS image restores Wi-Fi (bar-nachum_EXT, credentials provisioned at first boot, never committed), installs Tailscale (operator runs tailscale up once, per q2), and ships the operator's SSH public key for user arduino",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "No Wi-Fi password, Tailscale auth key or private key is committed to the repo or baked into the published image",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "python3 scripts/scan-secrets.py clean; inspect image for psk/authkey: none",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "VENTUNO Q is not visible to the host: lsusb shows no Qualcomm/Arduino device, kernel log shows no new USB device after 08:15 (only the ASUS keyboard disconnect), and the user reports the fan is not spinning \u2014 board is likely powered off / not booting; nothing on-device can be verified until it powers up and enumerates (or is reachable via Ethernet)",
+      "kind": "unknown_blocking",
+      "claim_id": null,
+      "resolved": true,
+      "resolution": "Board was waiting at first-run setup; after user completed setup via monitor it enumerated on USB (2341:007a VENTUNO Q, adb serial 1687124638) and took DHCP 192.168.1.221 over Ethernet with SSH key auth working",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "GitHub issue #3 (Yocto distribution)",
+      "finding": "Owns image build + flashing; mandates M0 'reference boots, recovery path tested' before replacing factory OS, and lists 'defined update/recovery strategy' under Minimal runtime \u2014 OTA is a sub-item of #3, not a new workstream",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "GitHub issue #4 (appliance suite)",
+      "finding": "Covers full suite on top of the image (AgentIRC, Rules, Library, Embodiment, NVMe persistence, backups); explicitly defers BSP/flashing to #3 \u2014 so it sits after the OS+OTA first goal",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "GitHub issue #1 (build brief)",
+      "finding": "Leaves 'what layer is the OS' open between (a) conceptual mesh-OS and (b) real distro image; user's request ('set it up with our own OS', OTA, power-only) points to (b)",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "culture-rules (README, pyproject store extra)",
+      "finding": "Persists run state in a MongoDB replica set with TLS/auth across hosts (README:39,127,209; 'orin third voter'); not single-node-standalone \u2014 app data must live outside the OTA-replaced rootfs",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "rollout-cli",
+      "finding": "README: cross-repo propagation built on refactor-cli \u2014 not a device update mechanism",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture (README)",
+      "finding": "Installed as a Python tool (uv tool install culture) and started with 'culture server start'; image must carry Python/uv + a systemd unit to supervise it",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "meta-qcom / meta-qcom-distro (OTA)",
+      "finding": "Only OTA path is OSTree/aktualizr via meta-updater (qcom-distro-sota); no ventuno-q CI for it \u2014 stack ci/ventuno-q.yml with qcom-distro-sota.yml, untested",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "meta-qcom-arduino (ventuno-q.conf, qbootctl)",
+      "finding": "ventuno-q.conf does not add qbootctl/bless-boot unlike uno-q.conf; boot-chain A/B support for QCS8300 unverified",
+      "seeds": [
+        "q1"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "kas container + meta-qcom-arduino CI",
+      "finding": "kas:5.5 image has arm64 manifest; upstream ventuno-q builds run on amd64 self-hosted (build-yocto.yml:118); arm64 host build of ventuno-q unproven",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "arduino docs-content flash-image.md + user manual",
+      "finding": "Factory OS is Ubuntu; recovery is EDL jumper + arduino-flasher-cli flash ventunoq (arm64 host supported); user 'arduino', password set at first setup; USB-C exposes adb in normal boot; power via barrel jack BEFORE plugging USB-C",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "arduino docs bridge.md (MCU)",
+      "finding": "STM32H5 Zephyr MCU reached via arduino-router on /dev/ttyACM0; no MCU firmware recipe in meta-qcom-arduino recipes-bsp",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "live device probe (lsusb, kernel log, adb, LAN sweep)",
+      "finding": "With official barrel power + known-good data cable + Ethernet: MCU alive (LED matrix, power LED) but Linux SoC shows no sign of life \u2014 zero USB kernel events across replugs, adb empty, no new DHCP host on 192.168.1.0/24 (only .215, no open ports, Wi-Fi-like jitter), fan idle. Factory OS state unknown; EDL (05c6:9008) is the OS-independent path",
+      "seeds": []
+    },
+    {
+      "id": "s13",
+      "surface": "board fingerprint over SSH (192.168.1.221)",
+      "finding": "Ubuntu 24.04.4, kernel 6.8.0-1078-qcom, GRUB EFI (grub-efi-arm64 2.12), 8 cores, 14Gi RAM; eMMC 59.3G: firmware partitions A/B, Linux single-slot efi/persist/system; no NVMe; docker, snapd, fwupd, unattended-upgrades, adbd, arduino-router(-serial), arduino-app-cli, arduino-cloud-connector running; hostname already 'cultureos'; no qbootctl/ostree installed",
+      "seeds": [
+        "c13",
+        "c14",
+        "c15",
+        "q1"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "DGX Spark network (ip addr)",
+      "finding": "Spark already on Tailscale (tailscale0 100.127.105.72); board on LAN only",
+      "seeds": [
+        "c12"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
