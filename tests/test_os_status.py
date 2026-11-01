@@ -71,6 +71,23 @@ def test_missing_state_is_none(fake, capsys) -> None:
     assert rc == 0 and json.loads(out)["outcome"] == "none"
 
 
+def test_booted_selected_by_marker_not_position(fake, capsys) -> None:
+    # During a one-shot trial boot ostree lists the staged deployment above
+    # the booted one; the booted entry must come from the '*' marker.
+    staged_first = """\
+  cultureos 77aa11bb.0 (pending)
+    Version: 0.5.0
+* cultureos 3f2a9c1d.0
+    Version: 0.4.0
+"""
+    fake(ostree=staged_first, state={"outcome": "none"})
+    rc, out, _ = _run(capsys, "--json")
+    data = json.loads(out)
+    assert rc == 0
+    assert data["booted"]["commit"] == "3f2a9c1d"
+    assert data["version"] == "0.4.0"
+
+
 def test_json_ostree_source(fake, capsys) -> None:
     fake(ostree=JSON_OUT, state={"outcome": "applied"})
     rc, out, _ = _run(capsys, "--json")
