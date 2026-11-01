@@ -21,6 +21,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Harness files describe the integrated image and release pipeline; hardware tasks t20-t22 stay planned until the NVMe arrives.
 - 85 composite assertions in the new OS tests split (SonarCloud python:S9073).
 
+### Fixed
+
+- `/code-review` of #7 (10 findings): trial boots run real health checks (sshd, tailnet address, culture node) and fail with none installed; the release workflow succeeds only when the board booted and promoted the published commit; the board pulls with `--timestamp-check` (no downgrade to an older signed commit); `cultureos-update now --no-wait` keeps the trigger short and the status step polls within a full-pull budget; persistent stage refusals are recorded instead of hidden as deferred; unclassified pull errors no longer overwrite the last outcome; commits are signed with `ostree sign --keys-file` (the key never on argv) and the summary is no longer signed; a failed bundle re-run keeps an earlier good bundle; culture-node exits 75 and retries until the board has a tailnet address; the image audit scans in chunks.
+
 ## [0.11.1] - 2026-11-01
 
 ### Added
