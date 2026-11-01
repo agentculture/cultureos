@@ -59,3 +59,18 @@ architecture, worktree layout, memory discipline, `ask-colleague` usage).
   flake8 (line length 100), bandit, markdownlint.
 - Worktrees you create go in `../.worktrees.cultureos/<name>/`, never a shared
   `../worktrees/`.
+
+## OS workstream
+
+Alongside the CLI, this repo is growing an OS workstream (issues
+[#3](https://github.com/agentculture/cultureos/issues/3) and
+[#4](https://github.com/agentculture/cultureos/issues/4)): CultureOS as a
+pinned Yocto image (`meta-cultureos`, kas lock file) for the Arduino VENTUNO Q,
+installed on NVMe with the factory Ubuntu on eMMC kept as fallback/rescue,
+reachable over Tailscale, with signed OSTree OTA (health-gated promotion,
+watchdog rollback). Today only the docs exist: see
+[`docs/os/README.md`](docs/os/README.md), the spec
+`docs/specs/2026-11-01-ventuno-q-cultureos-ota.md` and the plan
+`docs/plans/2026-11-01-ventuno-q-cultureos-ota.md`. The `os/` tree, the
+`cultureos os` verb and the build/release pipeline are (planned) and do not
+exist on disk yet.
