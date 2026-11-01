@@ -32,16 +32,20 @@ case "$1" in
   init) mkdir -p "$repo/objects" "$repo/refs/heads" ;;
   rev-parse) cat "$repo/refs/heads/$2" 2>/dev/null || exit 1 ;;
   pull-local) fail pull-local; mkdir -p "$repo/objects"; touch "$repo/objects/$3" ;;
-  sign) fail sign; [ -n "${4:-}" ] || exit 1; touch "$repo/objects/$3.sig" ;;
+  sign)
+    fail sign
+    kf=""; rev=""
+    for a in "$@"; do
+      case "$a" in --keys-file=*) kf="${a#--keys-file=}" ;; sign|-*) ;; *) rev="$a" ;; esac
+    done
+    [ -f "$kf" ] || { echo "stub: no readable --keys-file" >&2; exit 1; }
+    [ -n "$rev" ] || exit 1
+    touch "$repo/objects/$rev.sig" ;;
   remote) echo "$*" > "$repo/remote" ;;
   pull)
-    if [ "$3" = "ventuno-q" ]; then fail verify-summary
-      rel="$(sed -n 's#.*file://##p' "$repo/remote" | head -1)"
-      [ -f "$rel/summary.sig" ] || exit 1
-    else fail verify-commit
-      rel="$(sed -n 's#.*file://##p' "$repo/remote" | head -1)"
-      [ -f "$rel/objects/$3.sig" ] || exit 1
-    fi ;;
+    fail verify-commit
+    rel="$(sed -n 's#.*file://##p' "$repo/remote" | head -1)"
+    [ -f "$rel/objects/$3.sig" ] || exit 1 ;;
   refs)
     case "$2" in
       --delete) rm -f "$repo/refs/heads/$3" ;;
@@ -50,8 +54,7 @@ case "$1" in
   summary)
     echo partial > "$repo/summary"
     fail summary
-    echo "summary-for-$(cat "$repo/refs/heads/ventuno-q")" > "$repo/summary"
-    echo sig > "$repo/summary.sig" ;;
+    echo "summary-for-$(cat "$repo/refs/heads/ventuno-q")" > "$repo/summary" ;;
   *) exit 1 ;;
 esac
 """
@@ -125,6 +128,18 @@ def test_publish_success_orders_steps(world):
     assert any("pull release " + NEW in c for c in log[: idx["refs"]])
 
 
+def test_secret_key_never_appears_on_any_command_line(world):
+    secret = world["key"].read_text().strip()
+    assert run(world).returncode == 0
+    for line in calls(world):
+        assert secret not in line
+    sign = next(c for c in calls(world) if " sign " in c)
+    assert f"--keys-file={world['key']}" in sign
+    # the summary is updated but never signed (its only option takes the key inline)
+    summary = next(c for c in calls(world) if " summary " in c)
+    assert "--sign" not in summary
+
+
 def test_second_run_is_a_noop(world):
     assert run(world).returncode == 0
     world["log"].write_text("")
@@ -134,9 +149,7 @@ def test_second_run_is_a_noop(world):
     assert not any("sign" in c for c in calls(world))
 
 
-@pytest.mark.parametrize(
-    "step", ["pull-local", "sign", "verify-commit", "refs", "summary", "verify-summary"]
-)
+@pytest.mark.parametrize("step", ["pull-local", "sign", "verify-commit", "refs", "summary"])
 def test_failure_leaves_published_state_unchanged(world, step):
     publish_old(world)
     r = run(world, STUB_FAIL=step)
@@ -147,7 +160,7 @@ def test_failure_leaves_published_state_unchanged(world, step):
     assert (rel / "summary.sig").read_text() == "old-sig"
 
 
-@pytest.mark.parametrize("step", ["sign", "summary", "verify-summary"])
+@pytest.mark.parametrize("step", ["sign", "summary"])
 def test_failure_on_first_publish_leaves_no_ref(world, step):
     r = run(world, STUB_FAIL=step)
     assert r.returncode != 0
@@ -210,6 +223,9 @@ def test_print_keygen_prints_without_generating(world, tmp_path):
     assert r.returncode == 0
     assert "openssl genpkey -algorithm ed25519" in r.stdout
     assert "os/keys/cultureos-ostree.pub" in r.stdout
+    # the secret is written as one base64 line, newline-terminated, for --keys-file
+    assert "base64 -w 0" in r.stdout
+    assert 'echo >> "$KEYDIR/ostree-ed25519.secret"' in r.stdout
     assert not (tmp_path / "home").exists()
 
 
@@ -242,7 +258,7 @@ def test_unit_binds_tailscale_address_only():
 
 
 def _real_ostree_ed25519():
-    exe = shutil.which("ostree")
+    exe = os.environ.get("CULTUREOS_TEST_OSTREE") or shutil.which("ostree")
     if not exe:
         return None
     out = subprocess.run([exe, "--version"], capture_output=True, text=True, check=False).stdout
@@ -271,7 +287,7 @@ def test_real_ostree_round_trip(tmp_path):  # pragma: no cover - needs host ostr
 
     pub = tail32("-pubout", "-in", str(pem))
     seed = tail32("-in", str(pem))
-    (tmp_path / "secret").write_text(base64.b64encode(seed + pub).decode())
+    (tmp_path / "secret").write_text(base64.b64encode(seed + pub).decode() + "\n")
     (tmp_path / "secret").chmod(0o600)
     (tmp_path / "pub").write_text(base64.b64encode(pub).decode() + "\n")
     build = tmp_path / "build"

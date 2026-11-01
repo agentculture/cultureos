@@ -54,10 +54,15 @@ def make_rootfs(tmp_path: Path) -> Path:
     return r
 
 
-def run(root: Path) -> subprocess.CompletedProcess:
-    env = {**os.environ, "LC_ALL": "C"}
+def run(root: Path, env_extra=None, preexec_fn=None) -> subprocess.CompletedProcess:
+    env = {**os.environ, "LC_ALL": "C", **(env_extra or {})}
     return subprocess.run(
-        ["bash", str(SCRIPT), str(root)], capture_output=True, text=True, env=env, check=False
+        ["bash", str(SCRIPT), str(root)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        preexec_fn=preexec_fn,
     )
 
 
@@ -151,3 +156,47 @@ def test_extracts_an_ostree_tarball(tmp_path):
     subprocess.run(["tar", "-cf", str(tar), "-C", str(root), "."], check=True)
     r = run(tar)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+TSKEY = b"tskey-auth-kAbc123CNTRL-0123456789abcdefABCDEF"
+
+
+@pytest.mark.parametrize("offset", [4096 - 20, 4096 - 1, 4096, 4096 - len(TSKEY) + 1])
+def test_tskey_split_across_a_chunk_boundary_is_found(tmp_path, offset):
+    root = make_rootfs(tmp_path)
+    (root / "usr/bin/evil").write_bytes(b"\x7fELF" + b"A" * (offset - 4) + TSKEY + b"\0" * 9000)
+    r = run(root, {"CULTUREOS_AUDIT_CHUNK": "4096"})
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "tskey-" in r.stdout
+
+
+def test_large_file_is_scanned_in_chunks_not_read_whole(tmp_path):
+    import resource
+
+    root = make_rootfs(tmp_path)
+    size = 1 << 30  # 1 GiB sparse file, key in the last bytes
+    big = root / "usr/share/big.bin"
+    big.parent.mkdir(exist_ok=True)
+    with big.open("wb") as fh:
+        fh.truncate(size - len(TSKEY))
+        fh.seek(size - len(TSKEY))
+        fh.write(TSKEY)
+
+    def limit_memory():
+        resource.setrlimit(resource.RLIMIT_AS, (512 << 20, 512 << 20))
+
+    r = run(root, preexec_fn=limit_memory)
+    assert r.returncode == 1, r.stdout + r.stderr[-500:]
+    assert "usr/share/big.bin" in r.stdout
+
+
+def test_text_checks_are_capped_to_small_files(tmp_path):
+    # psk= / PEM checks apply to non-ELF files up to CULTUREOS_AUDIT_TEXT_CAP bytes;
+    # key and config files are small, and bigger non-ELF files are data blobs.
+    root = make_rootfs(tmp_path)
+    (root / "usr/etc/small.conf").write_text("psk=hunter2\n")
+    (root / "usr/etc/large.conf").write_text("x" * 5000 + "\npsk=hunter2\n")
+    r = run(root, {"CULTUREOS_AUDIT_TEXT_CAP": "1000"})
+    assert r.returncode == 1
+    assert "small.conf" in r.stdout
+    assert "large.conf" not in r.stdout

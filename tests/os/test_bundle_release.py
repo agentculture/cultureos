@@ -72,3 +72,15 @@ def test_firmware_source_in_flash_bundle_fails(tmp_path):
     assert proc.returncode != 0
     assert "source-like" in proc.stderr
     assert not list(out.glob("*.tar"))
+
+
+def test_failing_rerun_keeps_a_previous_good_bundle(tmp_path):
+    proc, out = _run(tmp_path, _fixture(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    tarball = out / "cultureos-release-t.tar"
+    good = tarball.read_bytes()
+    bad_deploy = _fixture(tmp_path / "again", license_file=False)
+    proc2, _ = _run(tmp_path, bad_deploy)
+    assert proc2.returncode != 0
+    assert tarball.read_bytes() == good
+    assert not list(out.glob(".stage.*"))

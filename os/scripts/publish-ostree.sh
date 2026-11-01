@@ -6,9 +6,12 @@
 #   2. sign that commit (ed25519) with the private key kept outside the git repo
 #   3. verify it the way a board will: pull it into a throwaway repo through a remote
 #      that has --sign-verify=ed25519=file:<public key>
-#   4. only now move the published ref, then update + sign the summary
-#   5. re-verify the summary the same way; on ANY failure after step 4, put the ref and
-#      the summary files back exactly as they were
+#   4. only now move the published ref, then update the (unsigned) summary; on ANY
+#      failure after step 4, put the ref and the summary files back exactly as they were
+# The secret key is handed to ostree as a FILE (`ostree sign --keys-file`), never on the
+# command line, where /proc/<pid>/cmdline and `ps` would show it to every local user.
+# `ostree summary --sign` only takes the key inline, so the summary is NOT signed; boards
+# verify commit signatures and guard against replay with `pull --timestamp-check`.
 # A failure at any step therefore leaves the published ref (and summary) unchanged.
 #
 # Config: env vars, optionally loaded from an env-style file (CULTUREOS_RELEASE_CONF,
@@ -16,7 +19,8 @@
 #   CULTUREOS_BUILD_REPO    build's OSTree repo (default: shared build's deploy/ ostree_repo)
 #   CULTUREOS_OSTREE_REF    ref to publish                       (default: ventuno-q)
 #   CULTUREOS_RELEASE_REPO  release repo, archive mode           (default: $HOME/cultureos-ostree/repo)
-#   CULTUREOS_SIGN_KEY      file holding the base64 ed25519 secret key; MUST be outside this git repo
+#   CULTUREOS_SIGN_KEY      file holding the base64 ed25519 secret key (one line, for
+#                          --keys-file); MUST be outside this git repo
 #   CULTUREOS_PUBKEY        file holding the base64 ed25519 public key (default: os/keys/cultureos-ostree.pub)
 #   OSTREE                  ostree binary (default: ostree)
 # Usage: os/scripts/publish-ostree.sh [--print-keygen]
@@ -35,6 +39,7 @@ PUBLIC="$(openssl pkey -outform DER -pubout -in "$KEYDIR/ostree-ed25519.pem" | t
 SEED="$(openssl pkey -outform DER -in "$KEYDIR/ostree-ed25519.pem" | tail -c 32 | base64)"
 # ostree wants the 64-byte secret key = seed || public, base64:
 (echo "$SEED" | base64 -d; echo "$PUBLIC" | base64 -d) | base64 -w 0 > "$KEYDIR/ostree-ed25519.secret"
+echo >> "$KEYDIR/ostree-ed25519.secret"   # one base64 key per line, as ostree sign --keys-file reads it
 # The public key is the only thing that gets committed (os/keys/cultureos-ostree.pub):
 echo "$PUBLIC" > os/keys/cultureos-ostree.pub
 KG
@@ -82,7 +87,6 @@ fi
 [ "$(stat -c %a "$KEY_REAL")" = "600" ] || log "warning: $KEY_REAL is not mode 600"
 
 REV="$("$OSTREE" --repo="$BUILD_REPO" rev-parse "$REF")" || die "ref '$REF' not found in $BUILD_REPO"
-SECRET="$(tr -d '[:space:]' <"$KEY_REAL")"
 
 if [ ! -d "$REL/objects" ]; then
   mkdir -p "$REL"
@@ -126,14 +130,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# verify_pull <what-to-pull> [summary]: pull from the release repo into a throwaway repo
+# verify_pull <what-to-pull>: pull from the release repo into a throwaway repo
 # through a remote that demands a valid ed25519 signature from $PUB.
 verify_pull() {
-  local what="$1" with_summary="${2:-}" v="$WORK/verify"
+  local what="$1" v="$WORK/verify"
   rm -rf "$v"
   "$OSTREE" --repo="$v" init --mode=archive
   "$OSTREE" --repo="$v" remote add --no-gpg-verify --sign-verify="ed25519=file:$PUB" \
-    ${with_summary:+--set=sign-verify-summary=true} release "file://$REL"
+    release "file://$REL"
   "$OSTREE" --repo="$v" pull release "$what"
 }
 
@@ -141,7 +145,7 @@ log "importing $REV ($REF) from $BUILD_REPO"
 "$OSTREE" --repo="$REL" pull-local "$BUILD_REPO" "$REV"
 
 log "signing commit"
-"$OSTREE" --repo="$REL" sign --sign-type=ed25519 "$REV" "$SECRET"
+"$OSTREE" --repo="$REL" sign --sign-type=ed25519 --keys-file="$KEY_REAL" "$REV"
 
 log "verifying commit signature against $PUB"
 verify_pull "$REV"
@@ -150,10 +154,7 @@ log "moving $REF -> $REV"
 MOVED=1
 "$OSTREE" --repo="$REL" refs --create="$REF" --force "$REV"
 
-log "updating and signing summary"
-"$OSTREE" --repo="$REL" summary --update --sign-type=ed25519 --sign="$SECRET"
-
-log "verifying summary signature"
-verify_pull "$REF" summary
+log "updating summary (unsigned; see header)"
+"$OSTREE" --repo="$REL" summary --update
 
 log "published $REF = $REV"

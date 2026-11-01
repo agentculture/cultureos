@@ -10,7 +10,9 @@
 #      uncommented "psk=" in any non-ELF file (deviation d6: upstream wpa_supplicant /
 #      hostapd binaries carry "psk=%s" format strings); no full PEM private key
 #      (BEGIN, base64 body, END) in any non-ELF file (programs embed bare markers,
-#      gnutls embeds FIPS self-test vectors); no
+#      gnutls embeds FIPS self-test vectors); the PEM and psk= checks read only non-ELF
+#      files up to 4 MiB (CULTUREOS_AUDIT_TEXT_CAP), the tskey check streams every file
+#      in 1 MiB chunks (CULTUREOS_AUDIT_CHUNK) so memory stays bounded; no
 #      baked SSH host keys; root locked and no account with an empty password.
 #
 # Usage: os/scripts/audit-image.sh <rootfs-dir | *.tar | *.tar.zst | *.tar.gz>
@@ -69,6 +71,28 @@ PRIVATE_KEY = re.compile(
 TSKEY = re.compile(rb"tskey-(?:[a-z]+-)?[A-Za-z0-9]{6,}-[A-Za-z0-9]{16,}|tskey-[0-9a-f]{20,}")
 
 
+# Memory stays bounded: every file is scanned for tskey in CHUNK-sized reads with an
+# OVERLAP-byte tail carried over so a key straddling a chunk boundary is still seen
+# (a key's shortest matching prefix is ~40 bytes; OVERLAP is far larger). The PEM and
+# psk= checks read a non-ELF file whole only when it is at most TEXT_CAP bytes.
+CHUNK = max(int(os.environ.get("CULTUREOS_AUDIT_CHUNK", 1 << 20)), 1024)
+TEXT_CAP = int(os.environ.get("CULTUREOS_AUDIT_TEXT_CAP", 4 << 20))
+OVERLAP = 256
+
+
+def scan_tskey(fh):
+    fh.seek(0)
+    tail = b""
+    while True:
+        block = fh.read(CHUNK)
+        if not block:
+            return False
+        buf = tail + block
+        if TSKEY.search(buf):
+            return True
+        tail = buf[-OVERLAP:]
+
+
 def rel(p):
     return os.path.relpath(p, root)
 
@@ -110,16 +134,23 @@ for d, dirs, files in os.walk(root):
             findings.append(f"baked SSH host key: {rel(p)}")
         try:
             with open(p, "rb") as fh:
-                data = fh.read()
+                head = fh.read(4)
+                is_elf = head == b"\x7fELF"
+                if scan_tskey(fh):
+                    findings.append(f"Tailscale key (tskey-...) in {rel(p)}")
+                size = os.fstat(fh.fileno()).st_size
+                # Key files only: ELF code may embed known test vectors (gnutls FIPS
+                # self-tests). PEM and psk= checks need whole lines/blocks, so they run
+                # on non-ELF files up to TEXT_CAP (key and config files are small).
+                if is_elf or size > TEXT_CAP:
+                    continue
+                fh.seek(0)
+                data = fh.read(TEXT_CAP + 1)
         except OSError:
             continue
-        if TSKEY.search(data):
-            findings.append(f"Tailscale key (tskey-...) in {rel(p)}")
-        is_elf = data[:4] == b"\x7fELF"
-        # Key files only: ELF code may embed known test vectors (gnutls FIPS self-tests).
-        if not is_elf and PRIVATE_KEY.search(data):
+        if PRIVATE_KEY.search(data):
             findings.append(f"PRIVATE KEY block in {rel(p)}")
-        if not is_elf and b"psk=" in data:
+        if b"psk=" in data:
             for line in data.splitlines():
                 s = line.strip()
                 if b"psk=" in s and not s.startswith((b"#", b";")):

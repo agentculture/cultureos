@@ -1,7 +1,7 @@
 # OSTree signing keys (public half only)
 
 This directory holds the **public** ed25519 key that boards use to verify
-CultureOS OSTree commits and summaries: `cultureos-ostree.pub` (one line,
+CultureOS OSTree commits: `cultureos-ostree.pub` (one line,
 base64, 32 bytes).
 
 The matching private key never enters this repository. It lives on the

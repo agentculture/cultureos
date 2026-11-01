@@ -3,7 +3,7 @@
 # Usage: os/scripts/bundle-release.sh <deploy-dir> <out-dir> [version]
 #   <deploy-dir>  tmp/deploy (holds images/ventuno-q/ and licenses/)
 #   <out-dir>     where cultureos-release-<version>.tar is written (outside the repo)
-# Exits non-zero, leaving no tarball, if LICENSE.qcom-2 is missing or anything
+# Exits non-zero, writing no new tarball (an existing one is left untouched), if LICENSE.qcom-2 is missing or anything
 # source-like for the Qualcomm firmware would be bundled. See docs/os/release-bundle.md.
 set -euo pipefail
 
@@ -24,7 +24,6 @@ cleanup() { rm -rf "$STAGE"; }
 on_exit() {
   local rc=$?
   cleanup
-  if [ "$rc" -ne 0 ]; then rm -f "$TARBALL"; fi
   exit "$rc"
 }
 trap on_exit EXIT
@@ -61,5 +60,8 @@ bad=$(tar tzf "$B"/images/*.qcomflash.tar.gz | grep -E "$SRC_RE" || true)
 (cd "$B" && find . -type f | sort | sed 's|^\./||' | xargs -d '\n' sha256sum >"$STAGE/MANIFEST.tmp")
 mv "$STAGE/MANIFEST.tmp" "$B/MANIFEST.sha256"
 grep -q 'LICENSE\.qcom-2$' "$B/MANIFEST.sha256" || die "manifest lacks LICENSE.qcom-2"
-tar -C "$STAGE" -cf "$TARBALL" "$NAME"
+# Build beside the target and rename only on success: a failed run never touches
+# (let alone deletes) a good bundle an earlier run left under the same name.
+tar -C "$STAGE" -cf "$STAGE/$NAME.tar.part" "$NAME"
+mv -f "$STAGE/$NAME.tar.part" "$TARBALL"
 echo "$TARBALL"

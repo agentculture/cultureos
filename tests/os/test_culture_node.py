@@ -229,6 +229,10 @@ def test_no_secrets_in_recipe_files():
 # --- the start wrapper, with a stub culture binary --------------------------
 
 
+# No tailnet in tests: a local-only node names its (loopback) host explicitly.
+LOCAL = {"CULTURE_NODE_NAME": "node1", "CULTURE_NODE_HOST": "127.0.0.1"}
+
+
 def _run_start(tmp_path, env_extra=None, mesh=False, stale_pid=False):
     home = tmp_path / "home"
     (home / ".culture" / "pids").mkdir(parents=True)
@@ -259,7 +263,7 @@ def test_start_script_is_executable_posix_sh():
 
 
 def test_start_runs_foreground_server_with_state_under_home(tmp_path):
-    r, argv, home = _run_start(tmp_path, {"CULTURE_NODE_NAME": "node1"})
+    r, argv, home = _run_start(tmp_path, LOCAL)
     assert r.returncode == 0, r.stderr
     assert argv[:3] == ["server", "start", "--foreground"]
     assert argv[argv.index("--name") + 1] == "node1"
@@ -269,13 +273,13 @@ def test_start_runs_foreground_server_with_state_under_home(tmp_path):
 
 
 def test_start_uses_mesh_config_when_operator_provided_one(tmp_path):
-    r, argv, home = _run_start(tmp_path, {"CULTURE_NODE_NAME": "node1"}, mesh=True)
+    r, argv, home = _run_start(tmp_path, LOCAL, mesh=True)
     assert r.returncode == 0, r.stderr
     assert argv[argv.index("--mesh-config") + 1] == f"{home}/.culture/mesh.yaml"
 
 
 def test_start_clears_stale_pid_file(tmp_path):
-    r, _, home = _run_start(tmp_path, {"CULTURE_NODE_NAME": "node1"}, stale_pid=True)
+    r, _, home = _run_start(tmp_path, LOCAL, stale_pid=True)
     assert r.returncode == 0, r.stderr
     assert not (home / ".culture" / "pids" / "server-node1.pid").exists()
 
@@ -283,7 +287,7 @@ def test_start_clears_stale_pid_file(tmp_path):
 def test_start_defaults_name_to_hostname_and_passes_overrides(tmp_path):
     r, argv, _ = _run_start(
         tmp_path,
-        {"CULTURE_NODE_PORT": "6697", "CULTURE_NODE_EXTRA_ARGS": "--no-persist"},
+        {**LOCAL, "CULTURE_NODE_PORT": "6697", "CULTURE_NODE_EXTRA_ARGS": "--no-persist"},
     )
     assert r.returncode == 0, r.stderr
     assert argv[argv.index("--name") + 1]  # some hostname
@@ -306,11 +310,25 @@ def test_start_listens_on_the_tailnet_address_by_default(tmp_path):
     assert argv[argv.index("--host") + 1] == "100.97.170.7"
 
 
-def test_start_falls_back_to_loopback_without_a_tailnet_address(tmp_path):
+def test_start_exits_75_without_a_tailnet_address(tmp_path):
     r, argv, _ = _run_start(tmp_path, {"CULTURE_NODE_NAME": "node1"})
+    assert r.returncode == 75
+    assert argv == []  # culture was never started
+    assert "no tailnet address" in r.stderr
+
+
+def test_explicit_loopback_host_starts_without_a_tailnet(tmp_path):
+    r, argv, _ = _run_start(
+        tmp_path, {"CULTURE_NODE_NAME": "node1", "CULTURE_NODE_HOST": "127.0.0.1"}
+    )
     assert r.returncode == 0, r.stderr
     assert argv[argv.index("--host") + 1] == "127.0.0.1"
-    assert "loopback" in r.stderr
+
+
+def test_unit_retries_indefinitely():
+    u = _unit()
+    assert u["StartLimitIntervalSec"] == ["0"]
+    assert u["RestartSec"] == ["30"]
 
 
 def test_explicit_host_overrides_the_tailnet_default(tmp_path):

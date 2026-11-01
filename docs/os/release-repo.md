@@ -47,12 +47,10 @@ The script is all-or-nothing for the published ref:
 
 1. Pull the build's commit **by checksum** into the release repo. No ref is
    created yet, so nothing is visible to boards.
-2. Sign that commit with ed25519.
+2. Sign that commit with ed25519 (`ostree sign --keys-file=<secret key file>`).
 3. Verify it as a board would: pull it into a throwaway repo through a remote
    configured with `--sign-verify=ed25519=file:<public key>`.
-4. Move the ref (`refs --create --force`), then `summary --update` with a
-   signed summary.
-5. Re-verify the summary the same way.
+4. Move the ref (`refs --create --force`), then `summary --update`.
 
 If any step fails, the script restores the previous ref (or removes a
 first-time ref) and the previous `summary` / `summary.sig` files, and exits
@@ -60,10 +58,14 @@ non-zero. Orphaned objects from a failed run are harmless; reclaim them with
 `ostree --repo=<release repo> prune --refs-only`. Re-running with the ref
 already at the build's commit is a no-op.
 
-Caveat: `ostree sign` and `ostree summary --sign` take the secret key on the
-command line (this ostree version has no key-file option), so it is briefly
-visible in the process list of the publishing user. Acceptable on a
-single-user host; do not publish from a shared machine.
+The secret key is never on a command line: `ostree sign --keys-file` reads it
+from the key file (one base64 line; `--print-keygen` writes it that way), so it
+does not show up in `ps` or `/proc/<pid>/cmdline`. `ostree summary --sign` only
+accepts the key inline, so **the summary is not signed**. That costs nothing:
+boards verify every commit signature (`sign-verify=true`) and defend against
+replaying an older, validly signed commit with `ostree pull --timestamp-check`
+(the update agent passes it). A tampered summary can at worst withhold or
+misreport updates; it cannot get an unsigned or wrongly signed commit installed.
 
 ## Serving over Tailscale
 
