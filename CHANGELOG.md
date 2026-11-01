@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-11-01
+
+### Added
+
+- `docs/deliveries/2026-11-01-ventuno-q-cultureos-ota.md`: delivery summary for the VENTUNO Q plan after waves 0-4 (partial run: 19 tasks delivered, t20-t22 blocked on the NVMe), with plan-versus-actual, drift, evidence-backed delivery claims and remaining work.
+- devague validation records: evidence e1-e12 (offline behavioral suite at aa5d23b; real image ostree for signature refusal and publish round trip) and behavioral deltas b1-b7, all proposed for operator adjudication.
+
 ## [0.12.0] - 2026-11-01
 
 ### Added

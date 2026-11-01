@@ -2,7 +2,7 @@
   "plan_slug": "ventuno-q-cultureos-ota",
   "schema_version": 2,
   "created": "2026-11-01T07:39:19Z",
-  "updated": "2026-11-01T15:00:06Z",
+  "updated": "2026-11-01T15:45:28Z",
   "deviations": [
     {
       "id": "d1",
@@ -129,7 +129,325 @@
       "seq": 9
     }
   ],
-  "evidence": [],
-  "deltas": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/os/test_meta_cultureos.py::test_kas_manifest_pins_every_repo_by_sha",
+      "behavior_text": "every repo in os/kas/cultureos.yml has a 40-hex commit pin and the committed lock file agrees",
+      "contract_text": "Every layer is pinned by commit SHA; a build fails rather than floating to a newer revision",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; does not exercise 'a build fails rather than floating' (not tested)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o5",
+      "test_ref": "tests/os/test_cultureos_security.py::test_unsigned_commit_is_refused",
+      "behavior_text": "with sign-verify=true an unsigned commit is refused with ostree's logged reason; a commit signed with another key is refused; a correctly signed one is accepted (also ::test_commit_signed_with_other_key_is_refused, ::test_signed_commit_is_accepted)",
+      "contract_text": "Unsigned or wrongly-signed commits are rejected before deploy, with a logged reason",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "ran green at the named commit against the IMAGE's own ostree 2026.5 (CULTUREOS_TEST_OSTREE wrapper over the image rootfs), real ed25519 sign/verify on the Spark kernel, throwaway keys; not on the board",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o6",
+      "test_ref": "tests/os/test_arduino_router.py::test_no_stm32_firmware_installed_or_flashed",
+      "behavior_text": "no recipe in os/meta-cultureos references stm32 / dfu-util / openocd / zephyr / stm32flash",
+      "contract_text": "No OTA payload writes MCU firmware; the /var/run/arduino-router.sock API is unchanged across OS updates",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; covers 'no OTA payload writes MCU firmware' statically; the socket API staying unchanged across OS updates is NOT tested (hardware)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o7",
+      "test_ref": "tests/os/test_arduino_router.py::test_only_arduino_router_recipe_touches_the_mcu_tty",
+      "behavior_text": "only the arduino-router recipe names the MCU tty (ttyACM*/ttySTM*); its unit and udev rule use /dev/ttySTM0 (deviation d5)",
+      "contract_text": "arduino-router starts at boot and owns /dev/ttyACM0; nothing else opens it",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; starting at boot is NOT tested (hardware)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o8",
+      "test_ref": "tests/os/test_provision.py::test_valid_full_file",
+      "behavior_text": "a valid provisioning file creates the arduino user with the key (0700 .ssh, 0600 authorized_keys), a 0600 NM keyfile, and the input is removed; plus tests/os/test_provision_rootfs.py found no PSK/Tailscale key in the integrated image rootfs 20261101140301",
+      "contract_text": "Wi-Fi/SSH secrets are read from an operator-supplied provisioning input at first boot and stored only under /var \u2014 never present in the image or repo",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; the rootfs scan ran on the last integrated image (built before the PR #7 review fixes, which did not touch provisioning)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o10",
+      "test_ref": "tests/os/test_culture_node.py::test_unit_orders_after_network_online_and_restarts",
+      "behavior_text": "culture-node.service: After/Wants network-online.target, Restart=on-failure, StartLimitIntervalSec=0; identity/state under /var/lib/culture (::test_unit_keeps_identity_and_state_in_var_lib_culture)",
+      "contract_text": "Node starts after network-online, restarts on crash, keeps its mesh identity under /var across OTA",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; unit file content only, not systemd behavior on the board",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o11",
+      "test_ref": "tests/test_os_status.py::test_outcomes",
+      "behavior_text": "cultureos os status reports applied/none exit 0, rolled-back/failed exit 1 (degraded), with --json; version and booted commit from ostree status",
+      "contract_text": "Reports deployed version + last update outcome (applied/rolled-back/failed) with --json, exit 0 healthy / non-zero degraded",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; ostree and the state file are faked via env overrides",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o14",
+      "test_ref": "tests/os/test_bundle_release.py::test_bundle_manifest_lists_license_and_no_source",
+      "behavior_text": "the bundle's MANIFEST lists LICENSE.qcom-2 and contains no firmware source; a missing licence fails with no tarball left",
+      "contract_text": "Every published image bundle includes LICENSE.qcom-2 and ships firmware in binary form only",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; also a real run on the shared deploy dir (1.3 GB bundle) during t7",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o15",
+      "test_ref": "tests/os/test_publish_ostree.py::test_real_ostree_round_trip",
+      "behavior_text": "publish signs the commit with --keys-file, a sign-verify remote verifies it, the ref moves; injected failures at pull-local/sign/verify/refs/summary leave the published ref and summary unchanged (::test_failure_leaves_published_state_unchanged)",
+      "contract_text": "Only signed commits from a successful, pinned build are committed; a failed build/sign step leaves the repo's current ref unchanged",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "ran green at the named commit; round trip used the IMAGE's real ostree 2026.5 via CULTUREOS_TEST_OSTREE, failure injection uses a stub ostree",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o16",
+      "test_ref": "tests/os/test_update_agent.py::test_now_with_no_new_commit_is_a_noop_every_time",
+      "behavior_text": "repeated cultureos-update now with no new commit is a no-op (exit 0, no deploy, no state write); the release status step succeeds only when the board booted and promoted the target (tests/os/test_release_status.py::test_applied_after_staging_trial_and_promotion)",
+      "contract_text": "The upgrade trigger is idempotent and reports the board's resulting deployment (applied/rolled-back) back into the run record",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; board and ssh are faked",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o17",
+      "test_ref": "tests/os/test_trialboot_helper.py::test_pass_promotes_after_health_check",
+      "behavior_text": "the default deployment changes only after a passing health check; failing, timing out, crashing or panicking before the check never changes it (::test_health_fail_reboots_and_rolls_back, audit after every scenario)",
+      "contract_text": "A new deployment becomes default only after its health check passes; any reset before that boots the previous default",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; LoaderEntryOneShot on the QCS UEFI is NOT tested (risk r5, hardware)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o4",
+      "test_ref": "tests/os/test_trialboot_helper.py::test_health_fail_reboots_and_rolls_back",
+      "behavior_text": "a trial that fails its health check requests a reboot and the unchanged default (previous deployment) is what the fake loader boots next",
+      "contract_text": "A deployment that fails its boot health check is abandoned and the previous one boots automatically, no hands-on step",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "offline pytest at the named commit (tests/os, no marker/folder convention: this repo's behavioral tests are the offline tests under tests/os and tests/test_os_status.py); runs against stubs/fakes, so it shows the logic, not on-board behavior; only the helper's decision logic; firmware boot behavior is NOT tested (hardware)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:43:28+02:00",
+        "commit": "aa5d23b"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "no-network local access is a USB CDC-ACM login console (ttyGS1; ttyGS0 reserved for the router bridge) plus the UART console on ttyMSM0, both asking for the provisioned arduino user's password; adbd is not shipped (removed from the image)",
+      "caused_by": [
+        "d3"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "arduino-router talks to the MCU via the stable udev symlink /dev/ttySTM0 (match 1209:ca01) instead of raw /dev/ttyACM0",
+      "caused_by": [
+        "d5"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "the provisioned arduino user is in group wheel; admin is password-prompted run0/polkit (root is locked)",
+      "caused_by": [
+        "d7"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "removed",
+      "behavior_text": "libvirt + qemu (packagegroup-qcom-virtualization) are no longer in the image; KVM in the kernel and container support are unaffected",
+      "caused_by": [
+        "d9"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "the image secrets scan flags key-shaped Tailscale tokens anywhere and complete PEM private-key files in non-ELF files, instead of any 'tskey-' / any PEM marker",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "added",
+      "behavior_text": "the board refuses an OTA commit older than the booted commit (ostree --timestamp-check against the booted rev), even if validly signed; recorded as a refused downgrade",
+      "caused_by": [
+        "c29"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "added",
+      "behavior_text": "trial boots run shipped health checks (sshd, tailscaled with a tailnet address, culture-node) and a trial with no checks installed fails instead of being promoted",
+      "caused_by": [
+        "c39"
+      ],
+      "evidence_refs": [
+        "e11"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
