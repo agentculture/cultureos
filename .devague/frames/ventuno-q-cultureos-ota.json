@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T06:19:47Z",
-  "updated": "2026-11-01T07:16:31Z",
+  "updated": "2026-11-01T07:32:55Z",
   "claims": [
     {
       "id": "c1",
@@ -41,26 +41,46 @@
         {
           "id": "h2",
           "text": "EDL reflash to the official Ubuntu image has actually been performed once on this board and booted, before any CultureOS image is flashed",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h19",
+          "text": "Recovery is prepared, not exercised: arduino-flasher-cli (linux-arm64) installed on the Spark, udev rule for 05c6 in place, EDL entry procedure documented; CultureOS install targets NVMe only and never writes eMMC",
           "status": "confirmed",
           "instruction": ""
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q7",
+          "text": "contradiction with c13?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "User: 'we prepare now and flash/reflash on the nvme when it arrives. Simpler, safer.' \u2014 prepare EDL recovery tooling now; CultureOS is flashed to NVMe only; no pre-emptive eMMC reflash"
+        }
+      ],
       "links": [],
-      "instruction": "arduino-flasher-cli flash ventunoq run + board boots Ubuntu; log kept in docs/",
+      "instruction": "arduino-flasher-cli --version on spark; ls /etc/udev/rules.d | grep 05c6; install script writes only /dev/nvme*",
       "revisions": []
     },
     {
       "id": "c3",
       "kind": "non_goal",
-      "text": "The first goal does not ship the issue #4 appliance suite (chat UI, culture-rules, culture-library, embodiment); those are milestones A0-A3 layered on top of a booting, self-updating image",
+      "text": "The first goal does not ship the issue #4 appliance suite ON THE BOARD (chat UI, culture-rules engine, culture-library, embodiment); culture-rules is used off-board, on the Spark, to drive releases (see release decision)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "The first goal does not ship the issue #4 appliance suite (chat UI, culture-rules, culture-library, embodiment); those are milestones A0-A3 layered on top of a booting, self-updating image",
+          "kind": "non_goal",
+          "reason": "User: culture-rules workflow pushes OTA updates"
+        }
+      ]
     },
     {
       "id": "c4",
@@ -242,7 +262,15 @@
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q6",
+          "text": "Fall-through: if the NVMe is missing/dead or CultureOS fails to boot, does the UEFI boot order fall back to the eMMC factory Ubuntu without hands-on access, or does the board stop at the UEFI menu?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User: 'Yes if possible, safer' \u2014 design for UEFI fall-through to the eMMC factory Ubuntu when NVMe is missing or CultureOS fails; verify when the NVMe arrives"
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": [
@@ -476,7 +504,15 @@
           "instruction": ""
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q5",
+          "text": "Automatic rollback mechanism: meta-qcom boots via systemd-boot (EFI_PROVIDER, qcom-common.inc:67). Does OSTree's BLS entry handling + systemd-boot boot counting (or another mechanism) give unattended rollback on this stack, or do we need GRUB/U-Boot as meta-updater usually expects?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User: 'q5=c39' \u2014 systemd-boot one-shot trial boot + early-armed qcom_wdt + panic reboot + health-gated promotion, eMMC Ubuntu rescue agent as layer 2, GRUB+greenboot as fallback if one-shot misbehaves"
+        }
+      ],
       "links": [],
       "instruction": "use greenboot/boot-count style check, not ostree admin rollback by hand",
       "revisions": []
@@ -499,6 +535,225 @@
       "links": [],
       "instruction": "python3 scripts/scan-secrets.py clean; inspect image for psk/authkey: none",
       "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "The CultureOS image packages arduino-router (static aarch64 Go binary from the 'arduino-router' deb on the factory OS; source github.com/arduino/arduino-router) so Linux can still reach the STM32 MCU over /dev/ttyACM0 after leaving Ubuntu",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "On the CultureOS image, a sketch-side Bridge call reaches Linux through /var/run/arduino-router.sock",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "bitbake arduino-router recipe; on board: systemctl is-active arduino-router; socket /var/run/arduino-router.sock exists",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "The image keeps a local access path that does not depend on the network: USB gadget (adbd and/or CDC-ACM serial \u2014 the factory OS exposes /dev/ttyGS0 via arduino-router-serial) or the UART console ttyMSM0 (on the factory kernel cmdline), so a broken network config is recoverable without EDL",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "With Ethernet unplugged and Wi-Fi disabled, a shell is obtained from the Spark via adb or serial",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Unplug Ethernet + disable Wi-Fi; reach a shell via adb or serial from the Spark",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "OTA updates are signed and the device refuses unsigned or wrongly-signed OSTree commits; updates are pulled only over Tailscale; sshd allows key auth only (no passwords, no root login)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "A deliberately unsigned commit is refused by the board; sshd -T reports key-only auth",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "ostree remote config has sign-verify=true; attempt to deploy an unsigned commit fails; sshd -T shows passwordauthentication no, permitrootlogin no",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "Published image artifacts carry Qualcomm's LICENSE.qcom-2 text: the QCS8300 boot binaries are redistributable only in binary form, only for Qualcomm chips, and must include the license (meta-qcom/licenses/LICENSE.qcom-2 \u00a71.1-1.2; firmware-qcom-boot-qcs8300.inc)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "The release bundle lists LICENSE.qcom-2 and contains no firmware sources",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Check release artifact contains LICENSE.qcom-2; no firmware source shipped",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "assumption",
+      "text": "The build depends on network fetches outside our control \u2014 QCS8300 boot binaries come from softwarecenter.qualcomm.com (firmware-qcom-boot-qcs8300.inc:5-9) \u2014 so 'reproducible' (c1) requires a local mirror of DL_DIR (and ideally sstate) on the Spark",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Second build with BB_NO_NETWORK=1 against the mirror succeeds",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "The board reports its deployed OS version and the outcome of the last update (applied / rolled back / failed) somewhere the operator sees without SSH \u2014 e.g. a cultureos doctor/status verb and the Culture mesh",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "After one applied and one rolled-back update, the status surface reports both outcomes correctly with --json",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "After an update and after a forced rollback, the status surface shows the right version and outcome",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "non_goal",
+      "text": "CultureOS does not carry Arduino App Lab, arduino-app-cli or arduino-cloud-connector (all running on the factory OS today); sketch upload to the MCU via App Lab is lost unless the factory Ubuntu on eMMC is booted",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "decision",
+      "text": "Prepare EDL recovery now; flash/reflash CultureOS only on the NVMe when it arrives \u2014 eMMC is not reflashed pre-emptively (simpler, safer)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "decision",
+      "text": "OTA server = plain signed OSTree repo on the DGX Spark served over Tailscale; publishing = committing a signed commit; no aktualizr/Uptane backend",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "decision",
+      "text": "Releases are driven by a culture-rules rule/workflow: build -> sign -> commit to the OSTree repo -> the board is OTA'd",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "The release workflow runs as a culture-rules code-run step placed on machine 'spark' (runner role, culture-rules README:35,38,140) and its run record shows build, sign, commit and board-upgrade outcomes",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "culture-rules rules run <release-rule>; inspect run steps + host",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "If the NVMe is missing or CultureOS fails to boot, the board falls through to the eMMC factory Ubuntu without hands-on access, if the UEFI boot order allows it (verify when NVMe arrives)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "With the NVMe removed (or a deliberately unbootable CultureOS), a power cycle lands in the eMMC factory Ubuntu and 'ssh arduino' (Tailscale) reaches it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Pull the NVMe / corrupt the CultureOS ESP entry; power-cycle; ssh arduino 'cat /etc/os-release' = Ubuntu",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "The board learns of a new release two ways: the culture-rules workflow's final action triggers 'ostree admin upgrade' on the board over Tailscale (push), and a systemd timer on the board polls the repo as a fallback (pull) \u2014 so a missed push never strands the board",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "With the push action disabled, the board still upgrades within one timer interval",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Disable the push action; publish; board upgrades within one timer interval",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "Rollback strategy (proposed for q5): keep upstream systemd-boot; each new OSTree deployment is staged non-default and booted once via LoaderEntryOneShot (trial boot); qcom_wdt armed early (systemd RuntimeWatchdogSec) + kernel panic reboot turn any panic/hang into a reset that lands on the old default; a health-check service promotes the deployment to default only after it passes. Layer 2: an eMMC Ubuntu rescue agent (UEFI BootOrder: NVMe, then eMMC Ubuntu) repairs the NVMe OSTree default when the NVMe OS cannot even load, with a retry cap and alert over Tailscale. Fallback if one-shot misbehaves on this UEFI: GRUB boot counter + greenboot (GRUB EFI proven on this board)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "Tested on the board: a trial deployment that panics, one that hangs, and one that fails health checks each end up back on the previous deployment with no hands-on action; with the NVMe removed the board boots eMMC Ubuntu and is reachable over Tailscale",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Probe in reference build: bootctl set-oneshot + deliberate panic/hang -> old default boots; pull NVMe -> lands in eMMC Ubuntu",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -509,6 +764,24 @@
       "claim_id": null,
       "resolved": true,
       "resolution": "Board was waiting at first-run setup; after user completed setup via monitor it enumerated on USB (2341:007a VENTUNO Q, adb serial 1687124638) and took DHCP 192.168.1.221 over Ethernet with SSH key auth working",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Yocto build on the Spark will compete for CPU/RAM/disk with the Spark's other workloads (docker services, inference); thread/memory limits needed \u2014 route plan-side as a plan risk",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "meta-updater (uptane/meta-updater) sota.conf.inc not yet read: which update client, credentials and bootloader integration it imposes is unexamined",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
       "resolution_claim_id": null
     }
   ],
@@ -625,8 +898,331 @@
       "seeds": [
         "c12"
       ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / adjacent-systems lens: board (dpkg, systemctl, file /usr/bin/arduino-router)",
+      "finding": "arduino-router is a static aarch64 Go binary (deb arduino-router); arduino-router-serial bridges /dev/ttyGS0 USB gadget serial via socat; App Lab/app-cli/cloud-connector are Ubuntu-only services",
+      "seeds": [
+        "c27",
+        "c33"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / failure-mode lens: board kernel cmdline + USB gadget",
+      "finding": "factory OS has console=ttyMSM0,115200 and a USB gadget (adbd, ttyGS0) \u2014 local access paths a headless image would lose",
+      "seeds": [
+        "c28"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / security lens: OTA transport + sshd",
+      "finding": "no signing/transport policy existed in the frame; added signed commits, Tailscale-only pull, key-only sshd",
+      "seeds": [
+        "c29"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / licensing lens: meta-qcom/licenses/LICENSE.qcom-2 + firmware-qcom-boot-qcs8300.inc",
+      "finding": "QCS8300 boot binaries redistributable in binary form for Qualcomm chips only, license text must ship",
+      "seeds": [
+        "c30"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / reproducibility lens: firmware-qcom-boot-qcs8300.inc:5-9",
+      "finding": "boot binaries fetched from softwarecenter.qualcomm.com at build time \u2014 external fetch threatens c1",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / observability lens: frame claims c7, c25",
+      "finding": "no claim said how the operator learns an update failed or rolled back; added status surface",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / rollback lens: meta-qcom/conf/machine/include/qcom-common.inc:67",
+      "finding": "EFI_PROVIDER=systemd-boot; automatic rollback mechanism for OSTree on this bootloader unverified",
+      "seeds": [
+        "q5"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / reversibility lens: c2 vs c13",
+      "finding": "EDL reflash precondition conflicts with OS-on-NVMe plan that leaves eMMC untouched",
+      "seeds": [
+        "q7"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / operations lens: factory unattended-upgrades vs Yocto",
+      "finding": "patch cadence unspecified once off Ubuntu \u2014 user question q3 (durable question file)",
+      "seeds": []
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / concurrency lens: OTA vs running services, power loss",
+      "finding": "clean pass: OSTree deploys are atomic and the switch happens at reboot; residual risk only for app-level data migrations across versions (o2 migration hooks) \u2014 not examined further",
+      "seeds": []
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / unexamined: uptane/meta-updater, NVMe hardware, culture packaging",
+      "finding": "not read/probed this pass: meta-updater sota.conf.inc (parked v3), NVMe behavior (no drive present), culture's deps under Yocto (lapse l3)",
+      "seeds": []
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / adjacent-systems lens: culture-rules README:33-38,140",
+      "finding": "culture-rules supports code-run workflow steps with per-step placement and an enrolled 'spark' machine with runner role \u2014 fits the release pipeline; board need not be an enrolled machine (push via action over Tailscale)",
+      "seeds": [
+        "c36",
+        "c38"
+      ]
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / rollback lens: board watchdog (/sys/class/watchdog, kernel.panic)",
+      "finding": "qcom_wdt hardware watchdog present (/dev/watchdog0, 30 s timeout, inactive: systemd RuntimeWatchdogSec=0); kernel.panic=-1 (immediate reboot on panic) on factory kernel",
+      "seeds": [
+        "q5"
+      ]
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / rollback lens: board UEFI efivars (Boot0000, BootOrder, LoaderInfo)",
+      "finding": "standard UEFI boot manager: one entry Boot0000 'Ubuntu' -> \\EFI\\ubuntu\\shimaa64.efi (eMMC ESP), BootOrder=0000, LoaderInfo GRUB 2.12; NVMe entry can be prepended; spec fall-through covers load failure only, not post-load panic/hang",
+      "seeds": [
+        "q5"
+      ]
+    },
+    {
+      "id": "s29",
+      "surface": "decider assessment (lobes /v1/systemone, clef-27b on thor) \u2014 q5 rollback options",
+      "finding": "8 strategies x 3 runs (initial, measured facts, upstream-cost sentence removed): sdboot_oneshot_trial_emmc_rescue 0.31 -> 0.40 -> 0.47; grub_counter_greenboot_emmc_rescue 0.30 -> 0.28 -> 0.30; OSTree+sd-boot counting out-of-box P=0.04-0.05; GRUB override cost ~moderate-high. Requests kept in session scratchpad q5-assess*.json",
+      "seeds": [
+        "q5"
+      ]
     }
   ],
-  "lapses": [],
-  "obligations": []
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "assumption-for-measurement",
+      "what": "h18 (on c25) prescribes 'greenboot/boot-count style check' for automatic rollback without verifying that any boot-counting mechanism exists for this stack \u2014 probe shows meta-qcom uses systemd-boot (EFI_PROVIDER, qcom-common.inc:67), not GRUB/U-Boot that meta-updater's rollback is usually wired to",
+      "skipped_check": "check bootloader + boot-count support before naming the rollback mechanism",
+      "refs": [
+        "c25",
+        "h18"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "provenance-missing",
+      "what": "c8 states OSTree is the only update framework in the Qualcomm layers and implies a working OTA path, but meta-updater's sota.conf.inc (which brings the update client and its server expectations) was never read \u2014 only the subagent's report and qcom-distro-sota.inc were",
+      "skipped_check": "read uptane/meta-updater sota.conf.inc",
+      "refs": [
+        "c8"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l3",
+      "code": "assumption-for-measurement",
+      "what": "c7 assumes culture can run on the image as 'uv tool install culture' without checking that a Yocto image can carry uv/PyPI wheels offline or that culture's deps build for aarch64 in Yocto",
+      "skipped_check": "check culture's dependency tree for native/compiled deps and a Yocto packaging route",
+      "refs": [
+        "c7"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c1",
+      "seam": "kas manifest/lock \u2194 upstream layers",
+      "behavior": "Every layer is pinned by commit SHA; a build fails rather than floating to a newer revision",
+      "source_text": "The Arduino VENTUNO Q runs CultureOS \u2014 our own pinned, reproducible Yocto image (meta-cultureos) built from this repo and installed on NVMe \u2014 reachable over Tailscale; OSTree-based OTA follows once the OS lives on NVMe, so the board ends up needing nothing but power to stay current.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c5",
+      "seam": "OSTree deployment switch \u2194 /var",
+      "behavior": "/var contents survive deploy and rollback unchanged; no OTA step writes under /var except declared migration hooks",
+      "source_text": "OTA updates the root/system image while preserving a separate persistent data area (/var/lib/cultureos, later NVMe per issue #4), so app state such as culture-rules' MongoDB run state (culture-rules README:39) survives updates and rollbacks",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c8",
+      "seam": "device update agent \u2194 OSTree remote (over Tailscale)",
+      "behavior": "Pull+deploy is atomic: interrupted download or power loss leaves the current deployment booted and unchanged",
+      "source_text": "OTA uses OSTree via meta-updater: meta-qcom-distro's qcom-distro-sota distro (conf/distro/qcom-distro-sota.conf, ci/qcom-distro-sota.yml) is the only update framework shipped by the Qualcomm layers \u2014 no RAUC/SWUpdate/Mender found \u2014 giving atomic rootfs deployments with rollback",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c25",
+      "seam": "bootloader \u2194 OSTree deployments",
+      "behavior": "A deployment that fails its boot health check is abandoned and the previous one boots automatically, no hands-on step",
+      "source_text": "OTA: one update deployed over Tailscale reboots into the new OSTree deployment, and a deliberately broken deployment rolls back to the previous one within 1 reboot cycle without hands-on access",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c29",
+      "seam": "OSTree remote \u2194 device",
+      "behavior": "Unsigned or wrongly-signed commits are rejected before deploy, with a logged reason",
+      "source_text": "OTA updates are signed and the device refuses unsigned or wrongly-signed OSTree commits; updates are pulled only over Tailscale; sshd allows key auth only (no passwords, no root login)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c11",
+      "seam": "Linux \u2194 STM32 (arduino-router)",
+      "behavior": "No OTA payload writes MCU firmware; the /var/run/arduino-router.sock API is unchanged across OS updates",
+      "source_text": "MCU stays out of the OS image path: STM32H5 runs Zephyr, Linux talks to it via arduino-router on /dev/ttyACM0 (+ /var/run/arduino-router.sock); CultureOS must preserve or package arduino-router and never flash MCU firmware as part of OTA (issue #3 MCU boundary)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c27",
+      "seam": "image \u2194 arduino-router service",
+      "behavior": "arduino-router starts at boot and owns /dev/ttyACM0; nothing else opens it",
+      "source_text": "The CultureOS image packages arduino-router (static aarch64 Go binary from the 'arduino-router' deb on the factory OS; source github.com/arduino/arduino-router) so Linux can still reach the STM32 MCU over /dev/ttyACM0 after leaving Ubuntu",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c26",
+      "seam": "first boot \u2194 operator provisioning",
+      "behavior": "Wi-Fi/SSH secrets are read from an operator-supplied provisioning input at first boot and stored only under /var \u2014 never present in the image or repo",
+      "source_text": "Connectivity survives the reflash: the CultureOS image restores Wi-Fi (bar-nachum_EXT, credentials provisioned at first boot, never committed), installs Tailscale (operator runs tailscale up once, per q2), and ships the operator's SSH public key for user arduino",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c12",
+      "seam": "tailscaled \u2194 /var/lib/tailscale",
+      "behavior": "Tailnet identity (name cultureos, 100.x IP) survives reboot, OTA and rollback without re-auth",
+      "source_text": "The board joins the tailnet (Tailscale) so it is reachable for management and OTA from anywhere, not just the home LAN \u2014 the DGX Spark is already on it (tailscale0 100.127.105.72)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c7",
+      "seam": "systemd \u2194 culture node",
+      "behavior": "Node starts after network-online, restarts on crash, keeps its mesh identity under /var across OTA",
+      "source_text": "The updated image boots into a supervised Culture mesh node (culture installs via 'uv tool install culture' + 'culture server start', culture/README.md:73-74) so the board is reachable on the mesh after every OTA (issue #3 M2)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c32",
+      "seam": "board \u2194 operator status surface",
+      "behavior": "Reports deployed version + last update outcome (applied/rolled-back/failed) with --json, exit 0 healthy / non-zero degraded",
+      "source_text": "The board reports its deployed OS version and the outcome of the last update (applied / rolled back / failed) somewhere the operator sees without SSH \u2014 e.g. a cultureos doctor/status verb and the Culture mesh",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c28",
+      "seam": "USB-C or UART \u2194 local shell",
+      "behavior": "A shell is reachable with networking down (no Ethernet, no Wi-Fi)",
+      "source_text": "The image keeps a local access path that does not depend on the network: USB gadget (adbd and/or CDC-ACM serial \u2014 the factory OS exposes /dev/ttyGS0 via arduino-router-serial) or the UART console ttyMSM0 (on the factory kernel cmdline), so a broken network config is recoverable without EDL",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c13",
+      "seam": "UEFI boot order \u2194 NVMe / eMMC",
+      "behavior": "Installing or updating CultureOS never modifies eMMC partitions; factory Ubuntu remains bootable",
+      "source_text": "The CultureOS OS (ESP-chainloaded kernel + OSTree sysroot) lives on NVMe; the eMMC keeps the boot firmware (_a/_b, untouched) and, if UEFI can boot NVMe, the factory Ubuntu as an always-available fallback OS \u2014 so a bad CultureOS install never bricks the board",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c30",
+      "seam": "release artifact \u2194 Qualcomm license",
+      "behavior": "Every published image bundle includes LICENSE.qcom-2 and ships firmware in binary form only",
+      "source_text": "Published image artifacts carry Qualcomm's LICENSE.qcom-2 text: the QCS8300 boot binaries are redistributable only in binary form, only for Qualcomm chips, and must include the license (meta-qcom/licenses/LICENSE.qcom-2 \u00a71.1-1.2; firmware-qcom-boot-qcs8300.inc)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c36",
+      "seam": "culture-rules release workflow \u2194 OSTree repo on the Spark",
+      "behavior": "Only signed commits from a successful, pinned build are committed; a failed build/sign step leaves the repo's current ref unchanged",
+      "source_text": "Releases are driven by a culture-rules rule/workflow: build -> sign -> commit to the OSTree repo -> the board is OTA'd",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c36",
+      "seam": "culture-rules action \u2194 board (Tailscale)",
+      "behavior": "The upgrade trigger is idempotent and reports the board's resulting deployment (applied/rolled-back) back into the run record",
+      "source_text": "Releases are driven by a culture-rules rule/workflow: build -> sign -> commit to the OSTree repo -> the board is OTA'd",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c39",
+      "seam": "trial boot (LoaderEntryOneShot) \u2194 OSTree default",
+      "behavior": "A new deployment becomes default only after its health check passes; any reset before that boots the previous default",
+      "source_text": "Rollback strategy (proposed for q5): keep upstream systemd-boot; each new OSTree deployment is staged non-default and booted once via LoaderEntryOneShot (trial boot); qcom_wdt armed early (systemd RuntimeWatchdogSec) + kernel panic reboot turn any panic/hang into a reset that lands on the old default; a health-check service promotes the deployment to default only after it passes. Layer 2: an eMMC Ubuntu rescue agent (UEFI BootOrder: NVMe, then eMMC Ubuntu) repairs the NVMe OSTree default when the NVMe OS cannot even load, with a retry cap and alert over Tailscale. Fallback if one-shot misbehaves on this UEFI: GRUB boot counter + greenboot (GRUB EFI proven on this board)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c39",
+      "seam": "qcom_wdt \u2194 systemd",
+      "behavior": "Watchdog is armed by early boot and a userspace or kernel hang resets the board within the watchdog timeout",
+      "source_text": "Rollback strategy (proposed for q5): keep upstream systemd-boot; each new OSTree deployment is staged non-default and booted once via LoaderEntryOneShot (trial boot); qcom_wdt armed early (systemd RuntimeWatchdogSec) + kernel panic reboot turn any panic/hang into a reset that lands on the old default; a health-check service promotes the deployment to default only after it passes. Layer 2: an eMMC Ubuntu rescue agent (UEFI BootOrder: NVMe, then eMMC Ubuntu) repairs the NVMe OSTree default when the NVMe OS cannot even load, with a retry cap and alert over Tailscale. Fallback if one-shot misbehaves on this UEFI: GRUB boot counter + greenboot (GRUB EFI proven on this board)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o19",
+      "claim_id": "c39",
+      "seam": "eMMC rescue agent \u2194 NVMe OSTree sysroot",
+      "behavior": "Rescue repairs the NVMe default at most N times, never writes eMMC firmware partitions, and alerts over Tailscale when it gives up",
+      "source_text": "Rollback strategy (proposed for q5): keep upstream systemd-boot; each new OSTree deployment is staged non-default and booted once via LoaderEntryOneShot (trial boot); qcom_wdt armed early (systemd RuntimeWatchdogSec) + kernel panic reboot turn any panic/hang into a reset that lands on the old default; a health-check service promotes the deployment to default only after it passes. Layer 2: an eMMC Ubuntu rescue agent (UEFI BootOrder: NVMe, then eMMC Ubuntu) repairs the NVMe OSTree default when the NVMe OS cannot even load, with a retry cap and alert over Tailscale. Fallback if one-shot misbehaves on this UEFI: GRUB boot counter + greenboot (GRUB EFI proven on this board)",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
 }
