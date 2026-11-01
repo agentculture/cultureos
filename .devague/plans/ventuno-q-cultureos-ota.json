@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T07:33:47Z",
-  "updated": "2026-11-01T12:18:11Z",
+  "updated": "2026-11-01T12:24:35Z",
   "targets": [
     {
       "id": "c1",
@@ -864,6 +864,14 @@
       "text": "Each PR must bump the version (version-check CI); workforce merges should land as one PR per wave or one per milestone with a single bump",
       "kind": "follow_up",
       "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r10",
+      "text": "target ostree in cultureos-image is built --without-ed25519-libsodium --without-openssl (tmp/work/.../ostree/2026.5 log.do_configure; meta-updater enables ed25519 only under cfs-signed), so the board cannot verify ed25519-signed commits: sign-verify (h24, t12) and signed pulls (t16) fail until the distro/image sets PACKAGECONFIG:append:pn-ostree = ' ed25519-libsodium' (or openssl)",
+      "kind": "follow_up",
+      "task_id": "t19",
       "resolved": false,
       "resolution": ""
     }
