@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/siemens/kas/master/kas/schema-kas.json
+#
+# CultureOS for the Arduino VENTUNO Q: the upstream ventuno-q machine config
+# stacked with the upstream qcom-distro-sota distro config, plus the
+# meta-cultureos layer from this repo, with distro `cultureos` and target
+# `cultureos-image`.
+#
+# Every repo is pinned by commit SHA here (the commits of the M0 reference
+# build, docs/os/reference-build.md); cultureos.lock.yml next to this file is
+# the kas lock file (`kas lock`) and must agree with these pins.
+#
+# Upstream ci files are included by repo reference: kas refuses to
+# concatenate config files from different repositories.
+#
+# Build it through os/scripts/bb.sh (shared caches, serialized); see
+# docs/os/building.md.
+
+header:
+  version: 14
+  includes:
+    - repo: meta-qcom-arduino
+      file: ci/ventuno-q.yml
+    - repo: meta-qcom
+      file: ci/qcom-distro-sota.yml
+
+distro: cultureos
+
+target:
+  - cultureos-image
+
+repos:
+  # This repository (no url: the repo that holds this file). Only the
+  # meta-cultureos layer is added to bblayers.
+  cultureos:
+    layers:
+      os/meta-cultureos:
+
+  meta-qcom-arduino:
+    url: https://github.com/qualcomm-linux/meta-qcom-arduino.git
+    branch: main
+    commit: cdc9ba7c16f44cc00705113bd56bcda0a848c7b1
+
+  meta-qcom:
+    url: https://github.com/qualcomm-linux/meta-qcom
+    branch: master
+    commit: 4cd87176382a393d9558690e892d5aa9d2343ee6
+
+  meta-qcom-distro:
+    url: https://github.com/qualcomm-linux/meta-qcom-distro
+    branch: main
+    commit: 5e4fabeba8b9666b33a037f8da2f96ab1dbf4924
+
+  meta-updater:
+    url: https://github.com/uptane/meta-updater
+    branch: master
+    commit: 068174256b46cdc14eaee9bfaf0fddb48b55b95e
+
+  oe-core:
+    url: https://github.com/openembedded/openembedded-core
+    branch: master
+    commit: fa83da7da277a641c3a997d3da26041fa46d48ab
+
+  bitbake:
+    url: https://github.com/openembedded/bitbake
+    branch: master
+    commit: 1763256342ae4d7f8028e8222400c6fc8c24d4a3
+
+  meta-openembedded:
+    url: https://github.com/openembedded/meta-openembedded
+    branch: master
+    commit: 53276e6882048b990201b3c230e0b1fd0b8311b6
+
+  meta-security:
+    url: https://git.yoctoproject.org/meta-security
+    branch: master
+    commit: 663084f075b98a4b91d86ca0d254a7a7bf1fd0e0
+
+  meta-selinux:
+    url: https://git.yoctoproject.org/meta-selinux
+    branch: master
+    commit: c716a95ae931ee2f1c7cd90e83208ce0bcd499d6
+
+  meta-virtualization:
+    url: https://git.yoctoproject.org/meta-virtualization
+    branch: master
+    commit: b1846974dc1eeaee327310e9964ede7903eb8a74
+
+  meta-audioreach:
+    url: https://github.com/AudioReach/meta-audioreach
+    branch: master
+    commit: e971991b11bed9ce8e7c83ece9df14cd94653f2d
+
+  meta-ai:
+    url: https://github.com/qualcomm-linux/meta-ai
+    branch: main
+    commit: ec488d7f302c0bccd4a903c0963e9794f4409592
+
+local_conf_header:
+  cultureos_limits: |
+    # The DGX Spark runs other workloads; keep the build polite.
+    BB_NUMBER_THREADS = "8"
+    PARALLEL_MAKE = "-j 8"
