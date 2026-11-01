@@ -2,7 +2,7 @@
   "plan_slug": "ventuno-q-cultureos-ota",
   "schema_version": 2,
   "created": "2026-11-01T07:39:19Z",
-  "updated": "2026-11-01T12:46:34Z",
+  "updated": "2026-11-01T12:50:33Z",
   "deviations": [
     {
       "id": "d1",
@@ -65,6 +65,20 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "t8 arduino-router talks to the MCU via the stable udev symlink /dev/ttySTM0 (udev rule: tty with idVendor 1209 idProduct ca01, as the factory 99-stm-tty.rules) instead of the raw /dev/ttyACM0 named in t8's criterion and c11/c27",
+      "task_ref": "t8",
+      "reason": "factory board (read-only ssh): 10-monza generator drop-in runs --serial-port /dev/ttySTM0; 99-stm-tty.rules symlinks the STM32 USB-ACM device 1209:ca01; ttyACM0 is only correct when the MCU is the first ACM device",
+      "affects": [
+        "t11",
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 5
     }
   ],
   "evidence": [],

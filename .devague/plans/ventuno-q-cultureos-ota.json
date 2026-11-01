@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T07:33:47Z",
-  "updated": "2026-11-01T12:46:34Z",
+  "updated": "2026-11-01T13:01:45Z",
   "targets": [
     {
       "id": "c1",
@@ -880,6 +880,22 @@
       "id": "r11",
       "text": "local no-network shell (c28/h23, t11) uses upstream adbd started unconditionally; meta-oe's Debian adbd patches disable adb authorization, so physical access to the USB device port = root shell. Conflicts with t12 hardening (root locked, adbd removal proposed for t19). Needs an operator decision before t19 wires packages in.",
       "kind": "unknown_nonblocking",
+      "task_id": "t19",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r12",
+      "text": "culture resolves mesh link passwords via secret-tool (libsecret + Secret Service on a D-Bus session bus); the headless culture-node service has neither, so mesh links are skipped and the node starts unlinked (t13). Options: --link via 0600 env file (password in argv), ship libsecret+gnome-keyring, or an upstream culture file/systemd-credential backend. Blocks c7/h5 'appears on the mesh' until decided.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t19",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r13",
+      "text": "culture-node listens on 0.0.0.0:6667 (IRC) and :7680 (webhook) by culture defaults; nothing limits them to the tailnet yet (t13). Needs a bind address or firewall rule before the image ships.",
+      "kind": "follow_up",
       "task_id": "t19",
       "resolved": false,
       "resolution": ""
