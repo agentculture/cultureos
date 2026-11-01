@@ -9,6 +9,8 @@ reset, and the firmware then boots the unchanged default.
 
 Subcommands:
   stage REF [--reboot]  deploy REF non-default and point LoaderEntryOneShot at it
+  preflight             would `stage` be allowed now? (the update agent asks before it
+                        downloads anything)
   check                 trial boot: run the health checks (cultureos-trialboot-health.service);
                         normal boot: record a trial that did not come back (rolled back)
   health-exit           ExecStopPost of the health unit: reboot a trial whose check failed
@@ -17,8 +19,12 @@ Subcommands:
   status                print the trial state as JSON
 
 Exit codes: 0 ok, 1 usage error or refused (default left unchanged), 2 environment
-error. Every external command is overridable for offline tests
-(CULTUREOS_TRIALBOOT_OSTREE, _BOOTCTL, _SYSTEMCTL), as are the paths.
+error. A refusal also prints one JSON line on stdout, {"status": "refused", "kind": K,
+"reason": R}: kind "transient" clears by itself (a trial is already staged), kind
+"persistent" needs a reboot into the default or an operator (booted deployment is not the
+default, systemd-boot's default entry is not OSTree's, the default entry is not blessed).
+Every external command is overridable for offline tests (CULTUREOS_TRIALBOOT_OSTREE,
+_BOOTCTL, _SYSTEMCTL), as are the paths.
 """
 
 import json
@@ -35,8 +41,18 @@ PANIC_TIMEOUT_DEFAULT = "5"
 SCHEMA_VERSION = 1
 
 
+TRANSIENT = "transient"
+PERSISTENT = "persistent"
+
+
 class Refused(Exception):
-    """A precondition does not hold; nothing was changed. Exit 1."""
+    """A precondition does not hold; nothing was changed. Exit 1.
+
+    @kind: TRANSIENT (clears by itself) or PERSISTENT (never clears on its own)."""
+
+    def __init__(self, msg: str, kind: str = PERSISTENT):
+        super().__init__(msg)
+        self.kind = kind
 
 
 class EnvFail(Exception):
@@ -216,17 +232,14 @@ def trial_of(state: dict, deps: list[dict]) -> dict | None:
 # -- stage -------------------------------------------------------------------------
 
 
-def cmd_stage(argv: list[str]) -> int:
-    reboot = "--reboot" in argv
-    refs = [a for a in argv if a != "--reboot"]
-    if len(refs) != 1 or refs[0].startswith("-"):
-        raise UsageError("usage: cultureos-trialboot stage REF [--reboot]")
-    ref = refs[0]
-    bid = boot_id()
-
+def preconditions(bid: str) -> tuple[list[dict], dict]:
+    """Everything `stage` needs before it deploys; raise Refused (with its kind) if not.
+    Returns (deployments, booted)."""
     state = load_state()
     if state.get("status") == "pending" and state.get("staged_boot_id") == bid:
-        raise Refused(f"a trial of {state.get('commit')} is already staged; reboot to run it")
+        raise Refused(
+            f"a trial of {state.get('commit')} is already staged; reboot to run it", TRANSIENT
+        )
 
     deps = deployments()
     booted = booted_of(deps)
@@ -250,6 +263,25 @@ def cmd_stage(argv: list[str]) -> int:
             f"default entry {expected} is not blessed yet (boot counting still running); "
             "systemd-boot could fall through to the trial entry"
         )
+    return deps, booted
+
+
+def cmd_preflight(argv: list[str]) -> int:
+    if argv:
+        raise UsageError("usage: cultureos-trialboot preflight")
+    preconditions(boot_id())
+    print(json.dumps({"status": "ok"}))
+    return 0
+
+
+def cmd_stage(argv: list[str]) -> int:
+    reboot = "--reboot" in argv
+    refs = [a for a in argv if a != "--reboot"]
+    if len(refs) != 1 or refs[0].startswith("-"):
+        raise UsageError("usage: cultureos-trialboot stage REF [--reboot]")
+    ref = refs[0]
+    bid = boot_id()
+    deps, booted = preconditions(bid)
 
     commit = run("ostree", ["rev-parse", ref]).strip()
     if commit == booted["checksum"]:
@@ -349,6 +381,12 @@ def run_checks() -> tuple[bool, str]:
     budget = _float_env("CULTUREOS_TRIALBOOT_TIMEOUT", 300)
     deadline = time.monotonic() + budget
     checks = _checks()
+    if not checks:
+        dirs = ", ".join(str(d) for d in _health_dirs())
+        return False, (
+            f"no health checks installed (looked in {dirs}); a trial without checks is not "
+            "promoted"
+        )
     for name, path in checks:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -549,6 +587,7 @@ class UsageError(Exception):
 
 COMMANDS = {
     "stage": cmd_stage,
+    "preflight": cmd_preflight,
     "check": cmd_check,
     "health-exit": cmd_health_exit,
     "promote": cmd_promote,
@@ -567,7 +606,8 @@ def main(argv: list[str]) -> int:
         log(str(exc))
         return 1
     except Refused as exc:
-        log(f"refused: {exc}")
+        print(json.dumps({"status": "refused", "kind": exc.kind, "reason": str(exc)}))
+        log(f"refused ({exc.kind}): {exc}")
         return 1
     except EnvFail as exc:
         log(f"error: {exc}")

@@ -542,12 +542,14 @@ def test_etc_overrides_and_masks_usr_checks(m):
     assert m.default()["checksum"] == NEW
 
 
-def test_no_checks_installed_passes(m):
+def test_no_checks_installed_fails(m):
+    """An image without health checks must not promote silently (PR #7 review)."""
     _stage(m)
     m.reboot()
-    assert m.run("check").returncode == 0
-    assert m.run("promote").returncode == 0
-    assert m.default()["checksum"] == NEW
+    assert m.run("check").returncode == 1
+    assert "no health checks installed" in m.trial_state()["health"]["reason"]
+    assert m.run("promote").returncode == 1
+    assert m.default()["checksum"] == OLD
 
 
 def test_status_prints_state(m):

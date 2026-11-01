@@ -281,6 +281,7 @@ def test_concurrent_checks_serialize_on_the_lock(b):
 
 
 def test_full_cycle_applied_then_up_to_date(b):
+    b.add_check("10-ok", "exit 0")
     b.publish(NEW)
     assert b.agent_json("run")[1]["result"] == "staged"
     b.reboot()  # the scheduled reboot: one-shot trial boot
@@ -397,16 +398,17 @@ def test_content_pull_error_records_failed_with_commit(b):
     assert b.deploys() == []
 
 
-def test_helper_refusal_is_deferred_not_failed(b):
+def test_helper_refusal_unblessed_default_is_failed_not_deferred(b):
+    """An unblessed default never blesses itself: a persistent refusal, recorded as
+    failed (PR #7 review; transient refusals: tests/os/test_update_agent_safety.py)."""
     w = b.load()
-    w["deployments"][0]["blessed"] = False  # default not blessed yet
+    w["deployments"][0]["blessed"] = False
     b.save()
     b.publish(NEW)
     rc, res = b.agent_json("run")
-    assert rc == 3
-    assert res["result"] == "deferred"
+    assert rc == 1
+    assert res["result"] == "failed"
     assert "not blessed" in res["reason"]
-    assert not b.update_state.exists()
     b.bless_booted()
     rc, res = b.agent_json("run")
     assert rc == 0
@@ -521,6 +523,11 @@ def test_classify_pull_error():
     assert agent.classify_pull_error("Commit x: No signatures found") == "verify"
     assert agent.classify_pull_error("Can't verify commit without detached metadata") == ("verify")
     assert agent.classify_pull_error("Corrupted file object") == "other"
+    downgrade = (
+        f"Upgrade target revision '{NEW}' with timestamp 'x' is chronologically older than "
+        f"current revision '{OLD}' with timestamp 'y'; use --allow-downgrade to permit"
+    )
+    assert agent.classify_pull_error(downgrade) == "downgrade"
 
 
 def test_tailnet_address_ranges(monkeypatch):

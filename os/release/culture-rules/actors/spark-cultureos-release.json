@@ -41,14 +41,16 @@
         "argv": [
           "/REPLACE-WITH-RELEASE-CHECKOUT/os/scripts/release-step.sh",
           "status",
+          "{target}",
           "{update_json}",
           "{wait_s}"
         ],
         "params": {
+          "target": "string",
           "update_json": "string",
           "wait_s": "int"
         },
-        "timeout": 1500
+        "timeout": 16500
       },
       "release_sync": {
         "argv": [
@@ -67,7 +69,7 @@
           "trigger"
         ],
         "params": {},
-        "timeout": 900
+        "timeout": 120
       }
     }
   },

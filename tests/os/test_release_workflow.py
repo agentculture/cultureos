@@ -69,8 +69,10 @@ def test_each_step_waits_for_the_previous_one_through_an_edge():
     for prev, nxt in zip(ORDER[:3], ORDER[1:4]):
         assert (prev, nxt, "after") in edges
     assert ("publish", "notify", "after") in edges
-    # the outcome step reads the board trigger's JSON, so it cannot run before it
+    # the outcome step reads the board trigger's JSON, so it cannot run before it, and
+    # it waits for the commit publish wrote
     assert ("notify", "status", "update_json") in edges
+    assert ("publish", "status", "target") in edges
     ports = {s["id"]: {p["name"] for p in s["inputs"]} for s in WORKFLOW["steps"]}
     for e in WORKFLOW["edges"]:
         if e["target"] != "outputs":
@@ -80,12 +82,35 @@ def test_each_step_waits_for_the_previous_one_through_an_edge():
 def test_board_steps_call_the_documented_commands_and_outputs_record_them():
     cmds = ACTOR["params"]["commands"]
     assert cmds["release_trigger"]["argv"][1:] == ["trigger"]
-    assert cmds["release_status"]["params"] == {"update_json": "string", "wait_s": "int"}
+    assert cmds["release_status"]["argv"][1:] == ["status", "{target}", "{update_json}", "{wait_s}"]
+    assert cmds["release_status"]["params"] == {
+        "target": "string",
+        "update_json": "string",
+        "wait_s": "int",
+    }
     sources = {o["name"]: o["source"] for o in WORKFLOW["outputs"]}
     assert sources["update"] == "steps.notify.outputs.stdout"
     assert sources["board_status"] == "steps.status.outputs.stdout"
     assert sources["commit"] == "steps.sync.outputs.stdout"
     assert sources["bundle"] == "steps.bundle.outputs.stdout"
+    assert sources["ostree_commit"] == "steps.publish.outputs.stdout"
+
+
+def test_board_budgets_cover_a_full_pull_reboot_and_trial():
+    """The trigger returns at once; the status poll outlasts the agent unit's 4 h pull
+    (TimeoutStartSec=4h), the reboot and the 15 min trial deadline; each runner timeout is
+    inside its step's timeout."""
+    cmds = ACTOR["params"]["commands"]
+    steps = {s["id"]: s for s in WORKFLOW["steps"]}
+    wait = steps["status"]["config"]["action"]["params"]["args"]["wait_s"]
+    assert wait >= 4 * 3600 + 15 * 60
+    assert cmds["release_status"]["timeout"] > wait
+    assert steps["status"]["timeout_s"] > cmds["release_status"]["timeout"]
+    assert cmds["release_trigger"]["timeout"] <= 300
+    assert steps["notify"]["timeout_s"] > cmds["release_trigger"]["timeout"]
+    for name, step in steps.items():
+        command = step["config"]["action"]["params"]["command"]
+        assert step["timeout_s"] > cmds[command]["timeout"], name
 
 
 def test_rule_ships_disabled_and_maps_event_data_to_inputs():
@@ -150,7 +175,11 @@ def test_a_failed_step_stops_the_run_before_the_board_trigger():
     assert ok["args"][0] == {"ref": "origin/main"}
     assert ok["args"][2] == {"version": "0.12.0"}
     # the board's JSON is handed to the outcome step and recorded in the run outputs
-    assert ok["args"][5] == {"update_json": "out:release_trigger", "wait_s": 1200}
+    assert ok["args"][5] == {
+        "target": "out:release_publish",
+        "update_json": "out:release_trigger",
+        "wait_s": 16200,
+    }
     assert ok["outputs"]["update"] == "out:release_trigger"
     assert ok["outputs"]["board_status"] == "out:release_status"
     for failing in ORDER:
@@ -245,11 +274,9 @@ def test_build_bundle_publish_pass_through_and_log(env):
     proc = _step(env, "bundle", "0.12.0")
     assert proc.returncode == 0
     assert proc.stdout.strip().endswith("cultureos-release-0.12.0.tar")
-    assert _step(env, "publish").stdout.strip() == "published"
     calls = _calls(env)
     assert calls[0] == f"bb {env['clone']}"
     assert re.fullmatch(r"bundle \S+/build/tmp/deploy \S+/cultureos-release 0\.12\.0", calls[1])
-    assert calls[2] == "publish "
     assert list((env["tmp"] / "home" / "cultureos-release" / "logs").glob("build-*.log"))
 
 
@@ -278,7 +305,7 @@ def test_trigger_prints_the_boards_json_and_targets_the_tailnet_name(env):
     proc = _step(env, "trigger", **_board(env, JSON_STAGED + "\n"))
     assert proc.returncode == 0
     assert proc.stdout.strip() == JSON_STAGED
-    assert "arduino@cultureos cultureos-update now --json" in _calls(env)[0]
+    assert "arduino@cultureos cultureos-update now --no-wait --json" in _calls(env)[0]
 
 
 def test_trigger_failure_keeps_the_boards_json_in_stderr(env):
@@ -291,45 +318,7 @@ def test_trigger_failure_keeps_the_boards_json_in_stderr(env):
 
 def test_trigger_board_is_configurable(env):
     _step(env, "trigger", CULTUREOS_BOARD="me@board", **_board(env, "{}"))
-    assert "me@board cultureos-update now --json" in _calls(env)[0]
+    assert "me@board cultureos-update now --no-wait --json" in _calls(env)[0]
 
 
-def _status_json(commit: str, outcome: str, deployed: str) -> str:
-    return json.dumps(
-        {
-            "healthy": outcome in ("applied", "none"),
-            "booted": {"commit": commit},
-            "outcome": outcome,
-            "last_update": {"deployed_commit": deployed},
-        }
-    )
-
-
-def test_status_after_staged_update_waits_and_reports_applied(env):
-    out = _status_json("abc", "applied", "abc")
-    proc = _step(env, "status", JSON_STAGED, "60", **_board(env, out))
-    assert proc.returncode == 0
-    assert json.loads(proc.stdout)["outcome"] == "applied"
-    assert "arduino@cultureos cultureos os status --json" in _calls(env)[-1]
-
-
-def test_status_reports_a_rollback_as_a_failed_step(env):
-    out = _status_json("old", "rolled-back", "abc")
-    proc = _step(env, "status", JSON_STAGED, "60", **_board(env, out, 1))
-    assert proc.returncode == 1
-    assert "rolled back abc" in proc.stderr
-    assert "rolled-back" in proc.stderr
-
-
-def test_status_times_out_when_the_board_never_answers(env):
-    proc = _step(env, "status", JSON_STAGED, "0", **_board(env, "ssh: no route", 255))
-    assert proc.returncode == 3
-    assert "no final outcome" in proc.stderr
-
-
-def test_status_without_a_staged_update_reads_the_board_once(env):
-    up_to_date = '{"result":"up-to-date","exit_code":0,"commit":"abc"}'
-    out = _status_json("abc", "applied", "abc")
-    proc = _step(env, "status", up_to_date, "60", **_board(env, out))
-    assert proc.returncode == 0
-    assert len(_calls(env)) == 1
+# The status step: tests/os/test_release_status.py.

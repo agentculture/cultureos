@@ -10,11 +10,16 @@ helper runs against it) with:
   the full (content) pull.
 - ``partial``: commits pulled with ``--commit-metadata-only`` and not yet in full;
   ``ostree admin deploy`` of one fails, like libostree does.
+- ``timestamps``: commit -> commit timestamp. ``--timestamp-check`` refuses a commit
+  older than the local ref, ``--timestamp-check-from-rev=REV`` one older than REV, with
+  libostree 2026.5's message (``_ostree_compare_timestamps``), after signature checks.
 - ``scheduled``: every ``systemd-run`` call.
 - ``unit_starts``: every ``systemctl start`` call (the push path).
 
 ``systemctl start cultureos-update.service`` runs the agent's ``run`` (the command
-named by ``UPD_AGENT_CMD``) with the caller's environment, as the unit would.
+named by ``UPD_AGENT_CMD``) with the caller's environment, as the unit would. With
+``--no-block`` the run also happens before the fake returns (as if the unit finished at
+once), so a test can read its result through ``cultureos-update status``.
 """
 
 import json
@@ -34,6 +39,22 @@ def _load() -> dict:
 
 def _save(world: dict) -> None:
     Path(os.environ["TB_WORLD"]).write_text(json.dumps(world, indent=2))
+
+
+def _timestamp_refusal(world: dict, args: list[str], ref: str, commit: str) -> str | None:
+    ts = world.get("timestamps", {})
+    current = []
+    if "--timestamp-check" in args and world["refs"].get(ref):
+        current.append(world["refs"][ref])
+    current += [a.split("=", 1)[1] for a in args if a.startswith("--timestamp-check-from-rev=")]
+    for cur in current:
+        if cur != commit and ts.get(commit, 0) < ts.get(cur, 0):
+            return (
+                f"Upgrade target revision '{commit}' with timestamp '{ts.get(commit, 0)}' is "
+                f"chronologically older than current revision '{cur}' with timestamp "
+                f"'{ts.get(cur, 0)}'; use --allow-downgrade to permit"
+            )
+    return None
 
 
 def _pull(world: dict, args: list[str]) -> int:
@@ -61,6 +82,10 @@ def _pull(world: dict, args: list[str]) -> int:
             "verified with: key 'abc'",
             file=sys.stderr,
         )
+        return 1, world
+    refused = _timestamp_refusal(world, args, f"{remote}:{branch}", commit)
+    if refused:
+        print(f"error: {refused}", file=sys.stderr)
         return 1, world
     if not metadata_only and r.get("content_error"):
         print(f"error: {r['content_error']}", file=sys.stderr)
@@ -104,7 +129,7 @@ def _ostree(world: dict, args: list[str]):
 
 
 def _systemctl(world: dict, args: list[str]):
-    args = [a for a in args if a != "--no-ask-password"]
+    args = [a for a in args if a not in ("--no-ask-password", "--no-block")]
     if args[:1] == ["start"]:
         world.setdefault("unit_starts", []).append(args[1])
         _save(world)

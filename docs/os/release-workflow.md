@@ -25,17 +25,30 @@ checkout.
 | `sync` | `release_sync ref` | detaches the release checkout at `ref` (`origin/main` or a sha); refuses a dirty checkout | the commit sha |
 | `build` | `release_build` | `os/scripts/bb.sh <release checkout>` ([`building.md`](building.md)) | `built <sha>` |
 | `bundle` | `release_bundle version` | `os/scripts/bundle-release.sh <deploy> <out> <version>` ([`release-bundle.md`](release-bundle.md)) | the tarball path |
-| `publish` | `release_publish` | `os/scripts/publish-ostree.sh`: import by checksum, ed25519 sign, verify, move the ref, signed summary; the ref is unchanged on failure ([`release-repo.md`](release-repo.md)) | `published` |
-| `notify` | `release_trigger` | `ssh arduino@cultureos cultureos-update now --json` over Tailscale ([`update-agent.md`](update-agent.md)) | the board's one JSON line (`result`, `commit`, `version`, `booted_commit`, `reboot_in`, `reason`, `run_id`, `at`) |
-| `status` | `release_status update_json wait_s` | after a `staged` result, waits out the reboot and trial boot, then reads `cultureos os status --json` ([`update-state.md`](update-state.md)) until the staged commit is `applied` or `rolled-back` (at most `wait_s`, 1200) | the board's status JSON |
+| `publish` | `release_publish` | `os/scripts/publish-ostree.sh`: import by checksum, ed25519-sign the commit, verify, move the ref, update the (unsigned) summary; the ref is unchanged on failure ([`release-repo.md`](release-repo.md)). Then reads the published commit with `ostree rev-parse --repo=<release repo> ventuno-q` | the published OSTree commit: the release **target** |
+| `notify` | `release_trigger` | `ssh arduino@cultureos cultureos-update now --no-wait --json` over Tailscale: starts the board's update unit and returns at once ([`update-agent.md`](update-agent.md)) | the board's one JSON line (`result: started`, `run_id`, `at`, `previous_run_id`) |
+| `status` | `release_status target update_json wait_s` | polls the board every 30 s (`CULTUREOS_RELEASE_POLL`), `cultureos os status --json` ([`update-state.md`](update-state.md)) and `cultureos-update status --json`, until the target is booted **and** the default, or a terminal outcome (at most `wait_s`, 16200) | the board's status JSON |
 
 The board step is called `notify` because `trigger` is a reserved step id.
 
 The workflow's inputs are `ref` and `version`. Its **outputs** (the only
 values a run exports, see culture-rules `docs/run-events.md`) are `commit`,
-`bundle`, `update` (the board's update JSON) and `board_status` (the final
-`os status` JSON). So a finished run shows the commit built, the bundle, the
-deployment the board was told to take and its outcome, applied or rolled back.
+`ostree_commit` (the published OSTree commit), `bundle`, `update` (the
+board's trigger JSON) and `board_status` (the final `os status` JSON). So a
+finished run shows the commit built, the commit published, the bundle and the
+board's final state.
+
+## Budgets
+
+The board pulls in the background, so no ssh connection is held open:
+
+| Step | Runner timeout | Step `timeout_s` | Why |
+|------|----------------|------------------|-----|
+| `notify` | 120 s | 300 s | only starts a unit |
+| `status` | 16 500 s | 17 000 s | `wait_s` 16 200 s = the agent unit's 4 h pull limit (`TimeoutStartSec=4h`) + 30 s reboot delay + boot + the 15 min trial deadline, with margin |
+
+Each runner timeout is inside its step's timeout (checked in
+`tests/os/test_release_workflow.py`).
 
 All six steps are placed on machine `spark`, and each is `idempotent` (a
 node restart re-runs a step instead of failing it `unsafe_retry`; every step
@@ -54,13 +67,23 @@ is safe to repeat: a second publish is a no-op, a second `now` answers
   stderr: `<step> failed (exit N); log: <path>` plus the last lines of the log
   (the full log is `$HOME/cultureos-release/logs/<step>-<time>.log`; the run
   keeps only the first 500 characters of stderr).
-- `notify` fails the run on the agent's exit 1 (`failed`), 2 (`error`) and 3
-  (`unreachable` or `deferred`); the board's JSON line is copied into the error
-  so the run still records it. Exit 0 results (`up-to-date`, `staged`,
-  `pending`, `held`) succeed.
-- `status` fails the run (exit 1) when the board rolled the update back, and
-  exits 3 if no final outcome arrives in `wait_s`. If `notify` did not return
-  `staged`, `status` reads the board once and reports it.
+- `notify` fails the run when the board cannot start its update unit (exit
+  2, polkit or ssh); the board's JSON line is copied into the error.
+- `status` decides the release. Board results whose `run_id` equals the
+  trigger's `previous_run_id` were there before the trigger and are ignored.
+
+  | Board state | Step result |
+  |-------------|-------------|
+  | target booted **and** the default (applied, or already up to date) | exit 0, prints the `os status` JSON |
+  | target booted but not the default (the trial boot, not promoted yet) | keep polling |
+  | `os status` outcome `rolled-back` or `failed` for the target | exit 1 with the board's reason |
+  | update result `pending`, `deferred`, or `staged` for the target | keep polling |
+  | update result `held` or `failed` (including a persistent refusal) | exit 1 with the board's reason |
+  | update result `error` / `unreachable` | exit 2 / exit 3 |
+  | `staged` or `up-to-date` for another commit | exit 1: the board's remote does not serve the target |
+  | no final outcome in `wait_s` | exit 3, with the last thing seen |
+
+  A release where nothing was applied never succeeds.
 
 ## One-time setup (operator, on the Spark)
 
@@ -157,11 +180,17 @@ built image.
 - Verified offline (`tests/os/test_release_workflow.py`): the export's
   structure; culture-rules' validator accepts it with 0 errors; in
   culture-rules' in-memory engine with a fake actor, a failure injected in any
-  one step fails the run and no later step is called, and the board's JSON
-  reaches `update` and `board_status`; the wrapper's behaviour with stub
-  `bb.sh`, bundle, publish and `ssh` (exit codes, log pointer, rollback is a
-  failed step, board JSON kept on failure). The culture-rules tests skip when
-  no culture-rules checkout is found (`CULTURE_RULES_SRC`).
+  one step fails the run and no later step is called, the published commit
+  reaches `status` as `target`, and the board's JSON reaches `update` and
+  `board_status`; the budgets; the wrapper's behaviour with stub `bb.sh`,
+  bundle, publish and `ssh` (exit codes, log pointer, board JSON kept on
+  failure). `tests/os/test_release_status.py` drives `status` with a
+  scripted board: staged, then the trial boot (booted, not default: not a
+  success), then promoted; already running the target; each terminal result
+  in the table above with its exit code; a rollback; pending until the
+  budget; a stale result ignored; `trigger` uses `--no-wait`; `publish`
+  prints the commit. The culture-rules tests skip when no culture-rules
+  checkout is found (`CULTURE_RULES_SRC`).
 - NOT verified (hardware and live services): a real run against the live
   store, a real build, a real signing round trip, and the board's reboot and
   rollback, since no CultureOS image is on the board yet.

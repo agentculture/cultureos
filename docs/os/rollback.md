@@ -23,13 +23,13 @@ Recipe `os/meta-cultureos/recipes-core/cultureos-trialboot/` (package
 
 | File (on the device) | Role |
 |----------------------|------|
-| `/usr/sbin/cultureos-trialboot` | The helper (Python 3, stdlib only): `stage`, `check`, `health-exit`, `promote`, `deadline`, `status` |
+| `/usr/sbin/cultureos-trialboot` | The helper (Python 3, stdlib only): `stage`, `preflight`, `check`, `health-exit`, `promote`, `deadline`, `status` |
 | `cultureos-trialboot-health.service` | `check`; `Before=` and `RequiredBy=boot-complete.target`; `ExecStopPost=` `health-exit` |
 | `cultureos-trialboot-promote.service` | `promote`; `Requires=` and `After=boot-complete.target`, after `systemd-bless-boot.service`; `WantedBy=multi-user.target` |
 | `cultureos-trialboot-deadline.timer` + `.service` | `deadline`, 15 min after boot |
 | `/usr/lib/systemd/system.conf.d/50-cultureos-watchdog.conf` | `WatchdogDevice=/dev/watchdog0`, `RuntimeWatchdogSec=20s`, `RebootWatchdogSec=60s` |
 | `/usr/lib/modules-load.d/cultureos-watchdog.conf` | Loads `qcom_wdt` early in sysinit |
-| `/usr/lib/cultureos/health.d/` | Empty directory for health checks other packages ship |
+| `/usr/lib/cultureos/health.d/` | The health checks: `10-sshd`, `20-tailscale`, `30-culture-node` (below); other packages may add more |
 | `conf/distro/include/cultureos-trialboot.inc` (build) | `OSTREE_KERNEL_ARGS:append = " panic=${CULTUREOS_PANIC_TIMEOUT}"`, default 5 |
 
 The image recipe is not touched. The integration task (t19) adds
@@ -134,6 +134,13 @@ it once `boot-complete.target` is reached; staging works from then on.
 
 1. Refuse unless the booted deployment is the default, the default entry is
    blessed and matches OSTree, and `REF` is not the running commit.
+   `preflight` runs the same checks without deploying anything; the update
+   agent calls it before it downloads a commit. A refusal exits 1 and prints
+   one JSON line, `{"status": "refused", "kind": K, "reason": R}`. Kind
+   `transient` clears by itself (a trial is already staged in this boot).
+   Kind `persistent` does not: the booted deployment is not the default, the
+   systemd-boot default is not OSTree's, or the default entry is not blessed.
+   It needs a reboot into the default or an operator.
 2. `ostree admin deploy --not-as-default --os=cultureos --karg=panic=5 REF`.
    The new deployment goes right after the booted one (index 1); older
    non-booted deployments, including an earlier failed trial, are dropped.
@@ -185,10 +192,23 @@ process group, which is killed on timeout. The health unit is not ordered
 after `multi-user.target` (that would be a cycle with the promote unit), so a
 check that needs a service waits for it itself.
 
-With no checks installed, a trial passes once it reaches the health unit:
-kernel, initramfs, OSTree root and systemd came up. The checks that make the
-gate meaningful (tailnet up, culture node running) come with the packages
-they test; wiring them in is integration work (t19).
+A trial with **no** checks installed fails (`no health checks installed`):
+an image that lost its checks must not be promoted on "it booted" alone.
+
+The recipe ships three checks (POSIX `sh`). Each one polls for its service
+for up to `CULTUREOS_HEALTH_WAIT` seconds (`CULTUREOS_HEALTH_POLL`, default
+2 s, between tries), which is inside the 120 s per-check limit. Together they
+take at most 245 s, inside the 300 s total.
+
+| Check | Passes when | Wait |
+|-------|-------------|------|
+| `10-sshd` | `sshd.socket` or `sshd.service` is active | 60 s |
+| `20-tailscale` | `tailscaled.service` is active **and** `tailscale ip -4` prints an address. An OTA only reaches an enrolled board, so a trial that lost the tailnet (daemon down, state lost, logged out) fails; promoting it would leave the board unreachable | 90 s |
+| `30-culture-node` | `culture-node.service` is active, and still active `CULTUREOS_HEALTH_SETTLE` s (5) later (it is `Type=simple`). `failed` fails at once. If the operator disabled or masked the unit in `/etc`, the check passes without checking | 90 s + 5 s |
+
+`20-tailscale` runs before `30-culture-node`, so the node's start script
+already has its tailnet address by then. "Active" means the node process is
+running, not that its IRC port answers.
 
 Environment overrides (for the units or tests): `CULTUREOS_TRIALBOOT_TIMEOUT`
 (total, default 300 s), `CULTUREOS_TRIALBOOT_CHECK_TIMEOUT` (per check, 120 s),
@@ -205,8 +225,9 @@ Environment overrides (for the units or tests): `CULTUREOS_TRIALBOOT_TIMEOUT`
 - `/var/lib/cultureos/update-state.json` ([`update-state.md`](update-state.md)):
   the helper writes `applied` when it promotes and `rolled-back` when it
   reconciles, so `cultureos os status` reports trial outcomes. The update
-  agent (t16) writes `failed` for fetch, verify and deploy errors, including
-  a non-zero exit from `stage`.
+  agent (t16) writes `failed` for verify, downgrade, download and deploy
+  errors, for a `stage` exit 2, and for a `persistent` refusal
+  ([`update-agent.md`](update-agent.md)).
 
 ## Proven offline
 
@@ -217,10 +238,18 @@ test's `reboot()` plays firmware and systemd-boot. Cases: pass, health fail,
 health timeout (per check and total), unit timeout, crash before the check,
 panic before user space, one-shot ignored, deadline, a pass from another boot
 or another commit, a manual boot of an older entry, and each `stage`
-precondition. After every test the fake's audit log is checked: every
-`ostree admin set-default` ran while a passing health record for the current
-boot existed. `tests/os/test_trialboot_recipe.py` checks the recipe, the unit
-ordering, the watchdog value and the `panic=` snippet.
+precondition, and a trial with no checks installed failing. After every
+test the fake's audit log is checked: every `ostree admin set-default` ran
+while a passing health record for the current boot existed.
+`tests/os/test_trialboot_recipe.py` checks the recipe, the unit ordering, the
+watchdog value and the `panic=` snippet. `tests/os/test_health_checks.py`
+runs each shipped check against stub `systemctl`, `tailscale` and `sleep`
+(pass, wait then pass, timeout, logged out, daemon down, node failed or
+crashing after start, node disabled). It also checks that the waits fit the
+helper's budgets and that the recipe installs the checks. It runs the real
+helper with the shipped `health.d`: a trial with no tailnet address is not
+promoted, the same trial with everything up is. It also covers the refusal
+kinds of `stage` and `preflight`.
 
 ## Not verified (hardware)
 
@@ -284,3 +313,7 @@ something implemented here.
   need it writable. Not checked on a running CultureOS system yet.
 - A trial that passes its checks but is broken in a way the checks do not
   test is promoted. Gate quality depends on the checks that get installed.
+- The shipped checks have only run against stubs. On the board they need
+  `systemctl` and `tailscale` on `PATH` in the health unit (both are in the
+  image) and the unit names `sshd.socket`, `tailscaled.service` and
+  `culture-node.service` (t22, procedure step 2 covers a failing check).

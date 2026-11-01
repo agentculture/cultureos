@@ -1,0 +1,27 @@
+#!/bin/sh
+# CultureOS trial-boot health check (docs/os/rollback.md): the board is still on the
+# tailnet. An OTA only reaches an enrolled board, so a trial that lost Tailscale (daemon
+# down, state lost, logged out) must fail: promoting it would take the board off the
+# tailnet for good. Polls for up to CULTUREOS_HEALTH_WAIT s.
+wait_s=${CULTUREOS_HEALTH_WAIT:-90}
+poll=${CULTUREOS_HEALTH_POLL:-2}
+waited=0
+while :; do
+    state=$(systemctl is-active tailscaled.service 2>/dev/null)
+    if [ "$state" = "active" ]; then
+        ip=$(tailscale ip -4 2>/dev/null | head -n 1)
+        if [ -n "$ip" ]; then
+            echo "tailscale: on the tailnet as $ip"
+            exit 0
+        fi
+        why="tailscaled is active but the board has no tailnet IPv4 (tailscale ip -4 is empty)"
+    else
+        why="tailscaled.service is ${state:-unknown}"
+    fi
+    if [ "$waited" -ge "$wait_s" ]; then
+        echo "tailscale: $why after ${wait_s} s" >&2
+        exit 1
+    fi
+    sleep "$poll"
+    waited=$((waited + poll))
+done

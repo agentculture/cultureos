@@ -1,0 +1,20 @@
+#!/bin/sh
+# CultureOS trial-boot health check (docs/os/rollback.md): the board still accepts ssh.
+# OpenSSH is socket-activated (sshd.socket); a plain sshd.service also counts.
+# Polls for up to CULTUREOS_HEALTH_WAIT s: the health unit is not ordered after
+# multi-user.target, so the check waits for the service itself.
+wait_s=${CULTUREOS_HEALTH_WAIT:-60}
+poll=${CULTUREOS_HEALTH_POLL:-2}
+waited=0
+while :; do
+    if systemctl is-active --quiet sshd.socket || systemctl is-active --quiet sshd.service; then
+        echo "sshd: accepting connections"
+        exit 0
+    fi
+    if [ "$waited" -ge "$wait_s" ]; then
+        echo "sshd: neither sshd.socket nor sshd.service is active after ${wait_s} s" >&2
+        exit 1
+    fi
+    sleep "$poll"
+    waited=$((waited + poll))
+done
