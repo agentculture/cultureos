@@ -48,9 +48,9 @@ Docs and scripts of the OS workstream:
 |----------|---------|--------|
 | `docs/os/board-baseline.md` | Measured state of the factory board | present |
 | `docs/os/recovery.md` | Restore-to-official-image path (EDL reflash) | present |
-| `docs/os/reference-build.md` | Building the upstream reference image on the Spark | (planned) |
+| `docs/os/reference-build.md` | Building the upstream reference image on the Spark | present |
 | `docs/os/update-state.md` | OTA update state and `cultureos os status` | present |
 
-Related code: `os/scripts/install-flasher.sh`, `os/scripts/capture-baseline.sh`
-and the `cultureos os status` verb (present); `os/scripts/build-reference.sh`
-(in progress).
+Related code (present): `os/scripts/install-flasher.sh`,
+`os/scripts/capture-baseline.sh`, `os/scripts/build-reference.sh` and the
+`cultureos os status` verb.
