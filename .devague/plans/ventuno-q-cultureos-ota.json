@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T07:33:47Z",
-  "updated": "2026-11-01T12:15:44Z",
+  "updated": "2026-11-01T12:18:11Z",
   "targets": [
     {
       "id": "c1",
@@ -394,9 +394,9 @@
       "id": "t2",
       "summary": "Recovery prep: arduino-flasher-cli on the Spark + 05c6 udev rule + documented EDL procedure (no flashing)",
       "origin": "llm",
-      "status": "confirmed",
+      "status": "proposed",
       "acceptance_criteria": [
-        "os/scripts/install-flasher.sh installs arduino-flasher-cli >= 0.5.4 (linux-arm64) into ~/.local/bin and verifies --version",
+        "os/scripts/install-flasher.sh installs arduino-flasher-cli >= 0.5.4 (linux-arm64) into the operator's per-user bin dir (INSTALL_DIR) and verifies --version",
         "docs/os/recovery.md documents JCTL pin1-GND to pin2 FORCED_USB_BOOT_N, barrel power then USB-C, expected lsusb 05c6:9008, the udev rule line, dialout membership, and that a reflash erases the eMMC",
         "no command in this task writes to the board"
       ],
@@ -539,9 +539,9 @@
       "id": "t10",
       "summary": "First-boot provisioning: Wi-Fi + SSH authorized key from an operator-supplied input, stored only under /var",
       "origin": "llm",
-      "status": "confirmed",
+      "status": "proposed",
       "acceptance_criteria": [
-        "os/meta-cultureos/recipes-core/cultureos-provision/ installs a oneshot unit that reads a provisioning file (e.g. cultureos-provision.toml on the ESP or a USB stick) on first boot, writes the NetworkManager/iwd profile + the arduino user's ~/.ssh/authorized_keys (home under /var), then shreds the input",
+        "os/meta-cultureos/recipes-core/cultureos-provision/ installs a oneshot unit that reads a provisioning file (e.g. cultureos-provision.toml on the ESP or a USB stick) on first boot, writes the NetworkManager/iwd profile + the arduino user's SSH authorized_keys (home under /var), then shreds the input",
         "python3 scripts/scan-secrets.py passes; a test asserts the image rootfs contains no psk= or tskey- strings",
         "docs/os/provisioning.md shows the file format with placeholder values only"
       ],
@@ -800,8 +800,8 @@
       "text": "aarch64 build host unproven for ventuno-q (upstream builds it only on amd64, build-yocto.yml:118); if t1 fails on a host-tool or prebuilt-binary issue, an x86 builder (or emulation) is needed - decision for the operator then",
       "kind": "unknown_nonblocking",
       "task_id": "t1",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Proven: the upstream ventuno-q image (t1, 17096/17096 tasks) and cultureos-image (t5) both built with exit 0 natively on the aarch64 DGX Spark; no x86 builder needed (docs/os/reference-build.md, docs/os/building.md). Closed by operator."
     },
     {
       "id": "r2",
@@ -816,8 +816,8 @@
       "text": "meta-updater sota.conf.inc unread (frame park v3): it may force aktualizr, credentials or a bootloader integration that fights systemd-boot one-shot",
       "kind": "unknown_nonblocking",
       "task_id": "t5",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Read in t5: sota.conf.inc sets SOTA_CLIENT only as a default (??=), so cultureos.conf sets it empty; image manifest has 0 aktualizr entries; bootloader stays systemd-boot; garage push only runs with credentials (none). Closed by operator."
     },
     {
       "id": "r4",

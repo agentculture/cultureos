@@ -15,7 +15,8 @@ bash os/scripts/install-flasher.sh
 
 This downloads `arduino-flasher-cli` v0.5.4 (linux-arm64) from the GitHub
 release, verifies its sha256 (the release asset digest,
-`bb48d3c5...ee38`), installs it into `~/.local/bin`, and checks the version.
+`bb48d3c5...ee38`), installs it into the per-user bin directory (`INSTALL_DIR`, default under
+`$HOME`), and checks the version.
 It never touches the board.
 
 Installed and verified on the DGX Spark:
