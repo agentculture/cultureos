@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Fail a pull request that has unresolved SonarCloud issues.
 
-Cited (cite-don't-import) from agentculture/culture-rules ``scripts/sonar-pr-issues.py``;
-fix upstream and re-cite rather than diverging here.
+Cited (cite-don't-import) from agentculture/culture-rules ``scripts/sonar-pr-issues.py``.
+Local divergence (cultureos /code-review of PR #6), to be offered upstream: setup errors
+and unexpected API shapes exit 2, transient API errors while waiting are retried, only
+OPEN/CONFIRMED issues are counted even if the API ignores the filter, and pagination
+falls back to ``paging.total``.
 
 SonarCloud's quality gate can pass with open issues on new code (a code smell does not
 turn it red), so CI runs this right after the scan: it waits until SonarCloud's analysis
@@ -34,19 +37,35 @@ UNRESOLVED = ("OPEN", "CONFIRMED")
 PAGE_SIZE = 100
 WAIT_S = 300
 POLL_S = 10
+MAX_TRANSIENT_ERRORS = 3
 
 Fetch = Callable[[str, Mapping[str, str]], Mapping[str, Any]]
+
+
+class SetupError(Exception):
+    """The gate cannot even start (no project key); exit 2, never 1."""
 
 
 def project_key(env: Mapping[str, str], root: Path) -> str:
     """``SONAR_PROJECT_KEY``, else ``sonar.projectKey`` from ``sonar-project.properties``."""
     if env.get("SONAR_PROJECT_KEY"):
         return env["SONAR_PROJECT_KEY"]
-    for line in (root / "sonar-project.properties").read_text().splitlines():
+    props = root / "sonar-project.properties"
+    try:
+        text = props.read_text()
+    except OSError as exc:
+        raise SetupError(f"no SONAR_PROJECT_KEY and {props} unreadable: {exc}") from exc
+    for line in text.splitlines():
         name, _, value = line.partition("=")
         if name.strip() == "sonar.projectKey" and value.strip():
             return value.strip()
-    raise SystemExit("sonar-pr-issues: no SONAR_PROJECT_KEY and no sonar.projectKey")
+    raise SetupError("no SONAR_PROJECT_KEY and no sonar.projectKey in sonar-project.properties")
+
+
+def _mapping(data: Any, what: str) -> Mapping[str, Any]:
+    if not isinstance(data, Mapping):
+        raise ValueError(f"unexpected {what} response: {type(data).__name__}")
+    return data
 
 
 def http_fetch(host: str, token: str | None) -> Fetch:
@@ -66,8 +85,10 @@ def http_fetch(host: str, token: str | None) -> Fetch:
 
 def analysed_commit(fetch: Fetch, project: str, pr: str) -> str | None:
     """The commit SonarCloud last analysed for pull request ``pr``, or ``None``."""
-    data = fetch("/api/project_pull_requests/list", {"project": project})
+    data = _mapping(fetch("/api/project_pull_requests/list", {"project": project}), "PR list")
     for item in data.get("pullRequests") or ():
+        if not isinstance(item, Mapping):
+            continue
         if str(item.get("key")) == pr:
             commit = item.get("commit") or {}
             sha = commit.get("sha")
@@ -88,9 +109,16 @@ def wait_for_analysis(
 ) -> bool:
     """True once the PR's analysis is for ``head``; False when ``wait_s`` runs out."""
     deadline = clock() + wait_s
+    errors = 0
     while True:
-        if analysed_commit(fetch, project, pr) == head:
-            return True
+        try:
+            if analysed_commit(fetch, project, pr) == head:
+                return True
+            errors = 0
+        except OSError:  # a transient HTTP/network error: retry within the budget
+            errors += 1
+            if errors >= MAX_TRANSIENT_ERRORS or clock() >= deadline:
+                raise
         if clock() >= deadline:
             return False
         sleep(poll_s)
@@ -99,6 +127,7 @@ def wait_for_analysis(
 def unresolved_issues(fetch: Fetch, project: str, pr: str) -> list[Mapping[str, Any]]:
     """Every OPEN or CONFIRMED issue of pull request ``pr``, across pages."""
     out: list[Mapping[str, Any]] = []
+    seen = 0
     page = 1
     while True:
         data = fetch(
@@ -111,12 +140,22 @@ def unresolved_issues(fetch: Fetch, project: str, pr: str) -> list[Mapping[str, 
                 "p": str(page),
             },
         )
+        data = _mapping(data, "issue search")
         issues = [i for i in data.get("issues") or () if isinstance(i, Mapping)]
-        out.extend(issues)
+        # Count only unresolved ones even if the server ignored the status filter.
+        out.extend(i for i in issues if _status(i) in UNRESOLVED)
+        seen += len(issues)
         total = data.get("total")
-        if not issues or not isinstance(total, int) or len(out) >= total:
+        paging = data.get("paging")
+        if not isinstance(total, int) and isinstance(paging, Mapping):
+            total = paging.get("total")
+        if not issues or not isinstance(total, int) or seen >= total:
             return out
         page += 1
+
+
+def _status(issue: Mapping[str, Any]) -> str:
+    return str(issue.get("issueStatus") or issue.get("status") or "")
 
 
 def describe(issue: Mapping[str, Any], project: str) -> str:
@@ -142,7 +181,11 @@ def main(
     if not pr or not head:
         print("sonar-pr-issues: PR_NUMBER and HEAD_SHA are required", file=sys.stderr)
         return 2
-    project = project_key(env, root)
+    try:
+        project = project_key(env, root)
+    except SetupError as exc:
+        print(f"sonar-pr-issues: {exc}", file=sys.stderr)
+        return 2
     if fetch is None:
         host = env.get("SONAR_HOST_URL") or "http://localhost:9000"
         fetch = http_fetch(host, env.get("SONAR_TOKEN") or None)

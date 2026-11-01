@@ -20,6 +20,7 @@ its entry (the test fails until it does).
 
 from __future__ import annotations
 
+import functools
 import subprocess  # nosec B404 — `git ls-files`, the tracked-file source of truth
 from pathlib import Path
 
@@ -62,8 +63,22 @@ def _tracked_files(root: Path) -> list[str]:
     return [name for name in out.split("\0") if name]
 
 
+#: Vendored, cite-don't-import trees: CLAUDE.md forbids editing them here, so the
+#: gate cannot ask for a split; fix upstream instead (sonar.exclusions skips them too).
+#: Local divergence from colleague's copy (cultureos /code-review of PR #6).
+VENDORED_PREFIXES = (".claude/skills/",)
+
+
 def _is_source(name: str) -> bool:
+    if name.startswith(VENDORED_PREFIXES):
+        return False
     return Path(name).suffix in SOURCE_EXTENSIONS
+
+
+@functools.cache
+def _repo_counts() -> dict[str, int]:
+    """The repo-wide scan, once per test session (three tests read it)."""
+    return scan_lengths(REPO_ROOT, _tracked_files(REPO_ROOT))
 
 
 def scan_lengths(root: Path, names: list[str]) -> dict[str, int]:
@@ -98,7 +113,7 @@ def scan_lengths(root: Path, names: list[str]) -> dict[str, int]:
 def test_tracked_source_files_stay_within_the_hard_line_limit() -> None:
     """No tracked source file exceeds 1000 lines, except the pinned few — and
     those may not grow."""
-    counts = scan_lengths(REPO_ROOT, _tracked_files(REPO_ROOT))
+    counts = _repo_counts()
     assert counts, "scanned no source files; this gate would pass on any tree"
 
     violations: list[str] = []
@@ -123,7 +138,7 @@ def test_tracked_source_files_stay_within_the_hard_line_limit() -> None:
 def test_the_grandfather_list_is_reaped() -> None:
     """A pinned file that now fits (or is gone) must lose its entry, so the
     exception list cannot outlive the problem it documents."""
-    counts = scan_lengths(REPO_ROOT, _tracked_files(REPO_ROOT))
+    counts = _repo_counts()
     stale = [
         f"  {name}: {counts.get(name, 0)} lines (pinned at {pinned})"
         + ("" if name in counts else " — file is gone")
@@ -134,6 +149,17 @@ def test_the_grandfather_list_is_reaped() -> None:
         "grandfathered entries no longer needed — delete them from GRANDFATHERED "
         "so the hard limit applies again:\n" + "\n".join(stale)
     )
+
+
+def test_vendored_skills_are_out_of_scope(tmp_path: Path) -> None:
+    """Vendored skill scripts are cite-don't-import and must not be edited here
+    (CLAUDE.md), so the gate cannot ask for them to be split; SonarCloud excludes
+    the same tree (sonar.exclusions)."""
+    vendored = tmp_path / ".claude" / "skills" / "x" / "scripts"
+    vendored.mkdir(parents=True)
+    (vendored / "big.sh").write_text("x\n" * (MAX_SOURCE_FILE_LINES + 1), encoding="utf-8")
+    counts = scan_lengths(tmp_path, [".claude/skills/x/scripts/big.sh"])
+    assert counts == {}
 
 
 def test_the_scanner_actually_scans(tmp_path: Path) -> None:
@@ -199,6 +225,6 @@ def test_the_gate_covers_python() -> None:
     """``.py`` is in scope and the repo really has Python for it to cover —
     the explicit ask: this gate exists to police Python here."""
     assert ".py" in SOURCE_EXTENSIONS
-    counts = scan_lengths(REPO_ROOT, _tracked_files(REPO_ROOT))
+    counts = _repo_counts()
     py = [name for name in counts if name.endswith(".py")]
     assert len(py) > 20, f"only {len(py)} tracked .py files scanned — scope looks wrong"

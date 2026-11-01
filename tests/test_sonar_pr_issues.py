@@ -124,3 +124,71 @@ def test_the_project_key_comes_from_sonar_project_properties():
 def test_missing_pr_or_head_is_an_environment_error(capsys):
     code = spi.main(env={}, fetch=FakeSonar([HEAD]), root=REPO_ROOT, sleep=lambda s: None)
     assert code == 2
+
+
+# --- /code-review PR #6 fixes (local divergence from culture-rules) --------------------
+
+
+def test_a_missing_project_key_is_an_environment_error(tmp_path, capsys):
+    (tmp_path / "sonar-project.properties").write_text("sonar.organization=x\n")
+    env = {"PR_NUMBER": "43", "HEAD_SHA": HEAD}
+    code = spi.main(env=env, fetch=FakeSonar([HEAD]), root=tmp_path, sleep=lambda s: None)
+    assert code == 2
+    assert "sonar.projectKey" in capsys.readouterr().err
+
+
+def test_a_missing_properties_file_is_an_environment_error(tmp_path, capsys):
+    env = {"PR_NUMBER": "43", "HEAD_SHA": HEAD}
+    code = spi.main(env=env, fetch=FakeSonar([HEAD]), root=tmp_path, sleep=lambda s: None)
+    assert code == 2
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_resolved_issues_returned_by_the_api_are_not_counted(capsys):
+    # An API that ignores issueStatuses returns everything; only OPEN/CONFIRMED count.
+    def lax(path, params):
+        if path == "/api/project_pull_requests/list":
+            return {"pullRequests": [{"key": "43", "commit": {"sha": HEAD}}]}
+        found = [issue(status="ACCEPTED"), issue(status="FALSE_POSITIVE"), issue(status="FIXED")]
+        return {"total": len(found), "issues": found if params["p"] == "1" else []}
+
+    code, out = run(lax, capsys)
+    assert code == 0, out.out
+
+
+def test_an_unexpected_json_shape_is_an_environment_error(capsys):
+    def odd(path, params):
+        return ["Forbidden"]
+
+    code, out = run(odd, capsys)
+    assert code == 2
+    assert "could not be read" in out.err
+
+
+def test_a_transient_api_error_while_waiting_is_retried(capsys):
+    fake = FakeSonar([HEAD], [issue()])
+    failures = iter([OSError("HTTP Error 503")])
+
+    def flaky(path, params):
+        if path == "/api/project_pull_requests/list":
+            err = next(failures, None)
+            if err:
+                raise err
+        return fake(path, params)
+
+    code, _ = run(flaky, capsys)
+    assert code == 1
+
+
+def test_pagination_falls_back_to_paging_total(capsys):
+    all_issues = [issue(line=n) for n in range(1, 4)]
+
+    def paged(path, params):
+        if path == "/api/project_pull_requests/list":
+            return {"pullRequests": [{"key": "43", "commit": {"sha": HEAD}}]}
+        page = int(params["p"])
+        return {"paging": {"total": 3}, "issues": all_issues[page - 1 : page]}
+
+    code, out = run(paged, capsys)
+    assert code == 1
+    assert "3 unresolved issue(s)" in out.out

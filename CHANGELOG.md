@@ -35,6 +35,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `scripts/sonar-pr-issues.py` (`/code-review` of #6): a missing project key or properties file and unexpected API JSON exit 2 (environment) instead of 1 or a traceback; transient API errors while waiting are retried (up to 3); only OPEN/CONFIRMED issues are counted even if the server ignores the status filter; pagination falls back to `paging.total`. Marked as a local divergence from culture-rules.
+- `tests/test_file_length_limit.py`: vendored `.claude/skills/**` is out of scope (it may not be edited here; Sonar excludes it too), and the repo is scanned once per session instead of three times.
 - SonarCloud python:S9073 x12: composite assertions in `tests/test_os_status.py` and `tests/os/test_install_flasher.py` split into one assertion each.
 
 ## [0.11.0] - 2026-11-01
