@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T06:19:47Z",
-  "updated": "2026-11-01T07:46:52Z",
+  "updated": "2026-11-01T12:02:02Z",
   "claims": [
     {
       "id": "c1",
@@ -1069,6 +1069,30 @@
       "skipped_check": "capture real ostree admin status output from the built CultureOS image",
       "refs": [
         "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l6",
+      "code": "provenance-missing",
+      "what": "t1 docs/os/reference-build.md listed kas-patched local HEADs (oe-core 5e5cbc72, meta-selinux f08bba92) as layer pins; those commits exist on no remote (upstream pins fa83da7d / c716a95a)",
+      "skipped_check": "check each SHA against the kas manifest commit: / remote branch, not the post-patch checkout HEAD",
+      "refs": [
+        "t1",
+        "docs/os/reference-build.md"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "assumption-for-measurement",
+      "what": "t1 docs/os/reference-build.md stated rm_work is not enabled and treated final build-dir size as a peak-disk upper bound; generated local.conf has INHERIT += rm_work, so peak disk was never measured",
+      "skipped_check": "grep build/conf/local.conf for rm_work; sample du during the build",
+      "refs": [
+        "t1",
+        "docs/os/reference-build.md"
       ],
       "origin": "llm",
       "status": "proposed"

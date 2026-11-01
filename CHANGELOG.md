@@ -14,11 +14,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `os/scripts/build-reference.sh` and `docs/os/reference-build.md`: M0 build of the unmodified upstream ventuno-q Yocto image on the aarch64 DGX Spark (exit 0, 17096/17096 tasks, ~3 h cold, 164 GB).
 - `os/scripts/install-flasher.sh` and `docs/os/recovery.md`: EDL recovery prep with `arduino-flasher-cli` (jumper, udev rule, reflash-to-official-image path).
 - `os/scripts/capture-baseline.sh` and `docs/os/board-baseline.md`: measured factory state of the board (eMMC layout, UEFI boot entries, watchdog, kernel).
+- `os/meta-cultureos/` layer (distro `cultureos` on `qcom-distro-sota`, no Uptane client, systemd-boot kept; `cultureos-image` with a `CULTUREOS_PACKAGES` slot), `os/kas/cultureos.yml` pinning all 12 upstream repos plus `cultureos.lock.yml`, and `os/scripts/bb.sh` (flock-serialized shared build with shared `DL_DIR`/`SSTATE_DIR`). First `cultureos-image` build: exit 0, ~57 min warm, OSTree commit tarball + ota-ext4 produced, no aktualizr (`docs/os/building.md`).
 - `docs/os/README.md` index for the OS workstream; eidetic records for board first contact and the route decision.
 
 ### Changed
 
 - `CLAUDE.md`, `AGENTS.override.md`, `AGENTS.colleague.md` and `QWEN.md` gain an OS-workstream section describing what is on disk; `CLAUDE.md` lists the `os status` verb.
+
+### Fixed
+
+- `docs/os/reference-build.md`: oe-core and meta-selinux pins were kas-patched local commits, not upstream; `rm_work` was enabled, so the build-dir size is not a peak-disk bound.
 
 ## [0.10.1] - 2026-10-20
 

@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T07:33:47Z",
-  "updated": "2026-11-01T07:37:26Z",
+  "updated": "2026-11-01T11:05:08Z",
   "targets": [
     {
       "id": "c1",
@@ -377,7 +377,7 @@
       "id": "t1",
       "summary": "M0 reference build: unmodified upstream ventuno-q image built on the aarch64 DGX Spark",
       "origin": "llm",
-      "status": "confirmed",
+      "status": "proposed",
       "acceptance_criteria": [
         "os/scripts/build-reference.sh runs kas-container on meta-qcom-arduino ci/ventuno-q.yml (+ ci/qcom-distro.yml) and exits 0 on the Spark",
         "deploy dir contains a *.qcomflash directory with rawprogram*.xml and patch*.xml",
@@ -388,7 +388,7 @@
         "c23",
         "h16"
       ],
-      "instruction": "Build in a scratch build dir outside the repo (e.g. /home/spark/yocto/cultureos-ref); only the script and the doc land in the repo. Cap BB_NUMBER_THREADS/PARALLEL_MAKE so the Spark's other workloads keep running. If the aarch64 host build fails, stop and report the failing recipe - do not switch hosts silently."
+      "instruction": "Build in a scratch build dir outside the repo (e.g. ~/yocto/cultureos-ref); only the script and the doc land in the repo. Cap BB_NUMBER_THREADS/PARALLEL_MAKE so the Spark's other workloads keep running. If the aarch64 host build fails, stop and report the failing recipe - do not switch hosts silently."
     },
     {
       "id": "t2",
