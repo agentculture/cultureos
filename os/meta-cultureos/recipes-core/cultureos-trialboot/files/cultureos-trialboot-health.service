@@ -1,0 +1,28 @@
+# Health gate of the CultureOS trial boot (decision c39, docs/os/rollback.md).
+#
+# Required by boot-complete.target: on a trial boot, a failed check keeps
+# boot-complete.target from being reached, so systemd-bless-boot does not bless
+# the trial entry and cultureos-trialboot-promote.service does not run; the
+# helper then reboots into the unchanged default. On a normal boot the check
+# exits 0 at once (and records a trial that did not come back).
+#
+# Not ordered after multi-user.target: the promote unit is WantedBy
+# multi-user.target and ordered after boot-complete.target, so that would be a
+# cycle. Checks that need a service wait for it themselves.
+[Unit]
+Description=CultureOS trial boot health check
+Before=boot-complete.target
+After=local-fs.target network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/cultureos-trialboot check
+# Runs on failure and on timeout too: reboots a trial whose check did not pass.
+ExecStopPost=/usr/sbin/cultureos-trialboot health-exit
+# The helper's own budget is 300 s (CULTUREOS_TRIALBOOT_TIMEOUT); this is the
+# backstop, well before cultureos-trialboot-deadline.timer.
+TimeoutStartSec=7min
+
+[Install]
+RequiredBy=boot-complete.target

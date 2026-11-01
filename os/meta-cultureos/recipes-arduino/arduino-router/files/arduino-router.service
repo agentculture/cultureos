@@ -1,0 +1,15 @@
+[Unit]
+Description=Arduino Router Service
+After=network.target
+Wants=network.target
+
+[Service]
+EnvironmentFile=-/etc/default/arduino-router
+ExecStart=/usr/bin/arduino-router --unix-port /var/run/arduino-router.sock --serial-port ${ARDUINO_ROUTER_SERIAL_PORT} --serial-baudrate ${ARDUINO_ROUTER_SERIAL_BAUDRATE}
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

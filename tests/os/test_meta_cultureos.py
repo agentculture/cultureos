@@ -66,8 +66,9 @@ def test_distro_requires_sota_and_drops_uptane_client():
 
 
 def test_image_recipe_has_integration_slot():
+    # t19 fills the slot; tests/os/test_image_integration.py checks its contents.
     text = (LAYER / "recipes-core" / "images" / "cultureos-image.bb").read_text()
-    assert re.search(r"^CULTUREOS_PACKAGES = \"\"$", text, re.M)
+    assert re.search(r"^CULTUREOS_PACKAGES = ", text, re.M)
     assert "${CULTUREOS_PACKAGES}" in text
     assert "aktualizr" not in text
 

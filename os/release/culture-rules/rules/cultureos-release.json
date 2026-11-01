@@ -1,0 +1,46 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Nothing: the release is the workflow's work",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "cultureos-release",
+  "condition": null,
+  "counts_toward_budget": true,
+  "description": "Fires on a cultureos.release.requested event (data.ref, data.version) and runs the cultureos-release workflow on spark. Ships disabled: the operator enables it after import (docs/os/release-workflow.md). A release can also be started by hand with workflows run.",
+  "enabled": false,
+  "exclusive_group": "cultureos-release",
+  "id": "cultureos-release",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "Release CultureOS when asked",
+  "on_failure": null,
+  "placement": {
+    "actor": null,
+    "machine": "spark",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "cultureos.release.requested"
+    }
+  },
+  "workflow": {
+    "id": "cultureos-release",
+    "inputs": {
+      "ref": "trigger.data.ref",
+      "version": "trigger.data.version"
+    },
+    "version": null
+  }
+}

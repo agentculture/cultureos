@@ -1,0 +1,11 @@
+# Covers a trial whose boot never reaches the health check (a unit hangs, the
+# check is never started) while PID 1 still pets the watchdog.
+[Unit]
+Description=CultureOS trial boot promotion deadline
+
+[Timer]
+OnBootSec=15min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

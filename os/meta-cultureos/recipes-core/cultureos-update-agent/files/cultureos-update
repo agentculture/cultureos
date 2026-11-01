@@ -1,0 +1,564 @@
+#!/usr/bin/env python3
+"""cultureos-update: the CultureOS update agent (plan task t16, docs/os/update-agent.md).
+
+Pulls the signed release commit from the Tailscale-served OSTree remote and hands a new
+commit to the trial-boot helper (cultureos-trialboot stage). Two ways in, one code path:
+
+  pull  cultureos-update.timer starts cultureos-update.service, which runs `run`
+  push  `cultureos-update now` over ssh starts the same service (a polkit rule lets
+        group wheel start that one unit without a password) and prints its result
+
+Subcommands:
+  run [--retry] [--json]  one update check (root; what cultureos-update.service runs)
+  now [--json]            start cultureos-update.service, wait for it, print its result
+  status [--json]         print the result of the last check
+
+Every check prints one result line (JSON with --json) and exits:
+  0  up-to-date, staged, pending (a trial is already staged or running) or held (the
+     remote commit already failed or rolled back here; waiting for a newer one)
+  1  failed: a fetched commit failed verification, download or staging; recorded in
+     /var/lib/cultureos/update-state.json (outcome `failed`)
+  2  environment error (no ostree, not root for `run`, remote not on the tailnet, ...)
+  3  deferred: the remote is unreachable (network or Tailscale down) or the trial-boot
+     helper refused to stage now; nothing recorded, the next timer run retries
+Repeating a check with no new remote commit changes nothing.
+
+External commands and paths are overridable for offline tests (CULTUREOS_UPDATE_OSTREE,
+_TRIALBOOT, _SYSTEMCTL, _SYSTEMD_RUN, _STATE, _RESULT, _LOCK, _NOW, _PROBE_ADDR,
+_TAILNET_CIDRS); the remote and the branch are not.
+"""
+
+import fcntl
+import ipaddress
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+from urllib.parse import urlsplit
+
+PROG = "cultureos-update"
+# Substituted by the recipe from OSTREE_OSNAME / OSTREE_BRANCHNAME. Not overridable:
+# the agent pulls from this remote (/etc/ostree/remotes.d/cultureos.conf) and no other.
+REMOTE = "cultureos"
+BRANCH = "ventuno-q"
+REF = f"{REMOTE}:{BRANCH}"
+UNIT = "cultureos-update.service"
+REBOOT_UNIT = "cultureos-update-reboot"
+SCHEMA_VERSION = 1
+
+# Tailscale's address ranges: IPv4 CGNAT block and the tailnet IPv6 ULA prefix.
+TAILNET_CIDRS = "100.64.0.0/10,fd7a:115c:a1e0::/48"
+
+# libcurl codes ostree reports as "While fetching URL: [N] text" that mean "could not
+# talk to the server right now": proxy/host resolution, connect, timeout, TLS connect,
+# empty reply, send/receive errors, partial file, HTTP/2 stream errors.
+TRANSIENT_CURL_CODES = {5, 6, 7, 18, 28, 35, 52, 55, 56, 92}
+NETWORK_TEXT = re.compile(
+    r"Could(n't| not) resolve|Couldn't connect|Failed to connect|Connection refused|"
+    r"Network is unreachable|No route to host|Timeout was reached|timed out|"
+    r"Temporary failure in name resolution|Server returned HTTP 5\d\d",
+    re.IGNORECASE,
+)
+CURL_CODE = re.compile(r"While fetching \S+: \[(\d+)\]")
+VERIFY_TEXT = re.compile(
+    r"Can't verify commit|No signatures found|ed25519:|No keys found|Failed loading|" r"signature",
+    re.IGNORECASE,
+)
+
+
+class EnvFail(Exception):
+    """The agent cannot do its job here (exit 2)."""
+
+
+class UsageError(Exception):
+    """Bad command line. Exit 2: exit 1 means a recorded failure in this contract."""
+
+
+# -- configuration ---------------------------------------------------------------
+
+
+def _env(name: str, default: str) -> str:
+    return os.environ.get(name, default)
+
+
+TOOLS = {
+    "ostree": ("CULTUREOS_UPDATE_OSTREE", "ostree"),
+    "trialboot": ("CULTUREOS_UPDATE_TRIALBOOT", "cultureos-trialboot"),
+    "systemctl": ("CULTUREOS_UPDATE_SYSTEMCTL", "systemctl"),
+    "systemd-run": ("CULTUREOS_UPDATE_SYSTEMD_RUN", "systemd-run"),
+}
+
+
+def _cmd(tool: str) -> str:
+    var, default = TOOLS[tool]
+    return _env(var, default)
+
+
+def _update_state_path() -> Path:
+    return Path(_env("CULTUREOS_UPDATE_STATE", "/var/lib/cultureos/update-state.json"))
+
+
+def _result_path() -> Path:
+    return Path(_env("CULTUREOS_UPDATE_RESULT", "/run/cultureos-update/result.json"))
+
+
+def _lock_path() -> Path:
+    return Path(_env("CULTUREOS_UPDATE_LOCK", "/run/cultureos-update.lock"))
+
+
+def _reboot_enabled() -> bool:
+    return _env("CULTUREOS_UPDATE_REBOOT", "yes").strip().lower() in ("yes", "true", "1")
+
+
+def _reboot_delay() -> int:
+    raw = _env("CULTUREOS_UPDATE_REBOOT_DELAY", "30")
+    try:
+        return max(0, int(raw))
+    except ValueError as exc:
+        raise EnvFail(f"CULTUREOS_UPDATE_REBOOT_DELAY is not an integer: {raw!r}") from exc
+
+
+def _tailnet_networks() -> list:
+    raw = _env("CULTUREOS_UPDATE_TAILNET_CIDRS", TAILNET_CIDRS)
+    try:
+        return [ipaddress.ip_network(c.strip()) for c in raw.split(",") if c.strip()]
+    except ValueError as exc:
+        raise EnvFail(f"bad CULTUREOS_UPDATE_TAILNET_CIDRS: {exc}") from exc
+
+
+# -- small helpers ---------------------------------------------------------------
+
+
+def log(msg: str) -> None:
+    print(f"{PROG}: {msg}", file=sys.stderr, flush=True)
+
+
+def now() -> str:
+    """UTC ISO-8601. CULTUREOS_UPDATE_NOW (epoch seconds) injects the clock in tests."""
+    raw = os.environ.get("CULTUREOS_UPDATE_NOW")
+    t = float(raw) if raw else time.time()
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+
+def run(tool: str, args: list[str], timeout: float = 300) -> subprocess.CompletedProcess:
+    argv0 = _cmd(tool)
+    try:
+        return subprocess.run(
+            [argv0, *args], capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except FileNotFoundError as exc:
+        raise EnvFail(f"{argv0} not found") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise EnvFail(f"{tool} {' '.join(args)} timed out after {timeout:g} s") from exc
+
+
+def run_ok(tool: str, args: list[str], timeout: float = 300) -> str:
+    r = run(tool, args, timeout)
+    if r.returncode != 0:
+        raise EnvFail(f"{tool} {' '.join(args)} failed ({r.returncode}): {detail(r)}")
+    return r.stdout
+
+
+def detail(r: subprocess.CompletedProcess) -> str:
+    text = (r.stderr or "").strip() or (r.stdout or "").strip()
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return lines[-1] if lines else f"exit {r.returncode}"
+
+
+def write_json(path: Path, data: dict, mode: int = 0o644) -> None:
+    """Replace @path atomically (temp file in the same directory, then rename)."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except OSError as exc:
+        raise EnvFail(f"cannot write {path}: {exc}") from exc
+
+
+def read_json(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+# -- the remote ------------------------------------------------------------------
+
+
+def _on_tailnet(addr: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    except ValueError:
+        return False
+    return any(ip.version == n.version and ip in n for n in _tailnet_networks())
+
+
+def remote_url() -> str:
+    """The configured URL of REMOTE; refuse anything that is not on the tailnet."""
+    url = run_ok("ostree", ["remote", "show-url", REMOTE]).strip()
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if parts.scheme not in ("http", "https") or not host:
+        raise EnvFail(f"remote {REMOTE} has URL {url!r}, not an http(s) URL")
+    if not (host.endswith(".ts.net") or _on_tailnet(host)):
+        raise EnvFail(
+            f"remote {REMOTE} URL {url} is not a Tailscale address (*.ts.net or a "
+            "tailnet IP); refusing to pull from outside the tailnet"
+        )
+    return url
+
+
+def probe(url: str) -> str | None:
+    """TCP-connect to the remote. Return why it is unreachable, or None.
+
+    The peer must be a tailnet address, so a MagicDNS name that resolves elsewhere
+    (Tailscale down, public DNS) counts as unreachable, never as a place to pull from.
+    """
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    override = os.environ.get("CULTUREOS_UPDATE_PROBE_ADDR")
+    if override:
+        host, _, p = override.rpartition(":")
+        port = int(p)
+    timeout = float(_env("CULTUREOS_UPDATE_PROBE_TIMEOUT", "10"))
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            peer = sock.getpeername()[0]
+    except OSError as exc:
+        return f"cannot reach {host}:{port}: {exc}"
+    if not _on_tailnet(peer):
+        return f"{host} resolved to {peer}, which is not a tailnet address (is Tailscale up?)"
+    return None
+
+
+def classify_pull_error(text: str) -> str:
+    """'network' (transient, retry next interval), 'verify' or 'other'."""
+    m = CURL_CODE.search(text)
+    if m and int(m.group(1)) in TRANSIENT_CURL_CODES:
+        return "network"
+    if VERIFY_TEXT.search(text):
+        return "verify"
+    if NETWORK_TEXT.search(text):
+        return "network"
+    return "other"
+
+
+def booted_commit() -> str:
+    out = run_ok("ostree", ["admin", "status", "--json"])
+    try:
+        deps = json.loads(out)["deployments"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise EnvFail(f"unexpected `ostree admin status --json` output: {exc}") from exc
+    for d in deps:
+        if d.get("booted"):
+            return d["checksum"]
+    raise EnvFail("not booted into an OSTree deployment")
+
+
+def commit_version(ref: str) -> str | None:
+    r = run("ostree", ["show", "--print-metadata-key=version", ref])
+    if r.returncode != 0:
+        return None
+    v = r.stdout.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        v = v[1:-1]
+    return v or None
+
+
+# -- results ---------------------------------------------------------------------
+
+EXIT = {
+    "up-to-date": 0,
+    "staged": 0,
+    "pending": 0,
+    "held": 0,
+    "failed": 1,
+    "error": 2,
+    "unreachable": 3,
+    "deferred": 3,
+    "none": 0,
+}
+
+
+def result(kind: str, reason: str | None = None, **fields) -> dict:
+    out = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": str(uuid.uuid4()),
+        "result": kind,
+        "exit_code": EXIT[kind],
+        "at": now(),
+        "ref": REF,
+        "commit": None,
+        "version": None,
+        "booted_commit": None,
+        "reboot_in": None,
+        "reason": reason,
+    }
+    out.update(fields)
+    return out
+
+
+def emit(res: dict, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(res, separators=(",", ":")), flush=True)
+        return
+    parts = [res["result"]]
+    if res.get("commit"):
+        version = f" ({res['version']})" if res.get("version") else ""
+        parts.append(f"{res['commit'][:12]}{version}")
+    if res.get("reboot_in") is not None:
+        parts.append(f"reboot in {res['reboot_in']} s")
+    if res.get("reason"):
+        parts.append(res["reason"])
+    print(": ".join(parts), flush=True)
+
+
+def record_failed(commit: str | None, version: str | None, previous: str, reason: str) -> None:
+    """Write outcome `failed` (docs/os/update-state.md), unless the same failure of the
+    same commit is already recorded: a repeated check must not change the state."""
+    path = _update_state_path()
+    prev = read_json(path) or {}
+    if (
+        prev.get("outcome") == "failed"
+        and prev.get("deployed_commit") == commit
+        and prev.get("reason") == reason
+    ):
+        return
+    write_json(
+        path,
+        {
+            "schema_version": 1,
+            "outcome": "failed",
+            "timestamp": now(),
+            "deployed_version": version,
+            "deployed_commit": commit,
+            "previous_commit": previous,
+            "reason": reason,
+        },
+    )
+
+
+# -- the decision loop -----------------------------------------------------------
+
+
+def trial_state() -> dict:
+    r = run("trialboot", ["status"])
+    if r.returncode != 0:
+        raise EnvFail(f"cultureos-trialboot status failed ({r.returncode}): {detail(r)}")
+    try:
+        st = json.loads(r.stdout)
+    except ValueError as exc:
+        raise EnvFail(f"unexpected `cultureos-trialboot status` output: {exc}") from exc
+    return st if isinstance(st, dict) else {}
+
+
+def schedule_reboot() -> tuple[int | None, str | None]:
+    if not _reboot_enabled():
+        return None, "reboot disabled (CULTUREOS_UPDATE_REBOOT); the trial runs at next boot"
+    delay = _reboot_delay()
+    r = run(
+        "systemd-run",
+        [
+            f"--unit={REBOOT_UNIT}",
+            f"--description=CultureOS trial boot of {REF}",
+            f"--on-active={delay}s",
+            "--timer-property=AccuracySec=1s",
+            "systemctl",
+            "reboot",
+        ],
+    )
+    if r.returncode != 0:
+        msg = f"could not schedule the reboot: {detail(r)}; the trial runs at next boot"
+        log(msg)
+        return None, msg
+    return delay, None
+
+
+def check(retry: bool) -> dict:
+    """One update check. Order matters: everything that can say "nothing to do" runs
+    before anything that downloads or changes the system."""
+    tb = trial_state()
+    if tb.get("status") == "pending":
+        return result(
+            "pending",
+            f"a trial of {tb.get('commit')} is staged or running; not checking until it ends",
+            commit=tb.get("commit"),
+            version=tb.get("version"),
+        )
+
+    booted = booted_commit()
+    url = remote_url()
+    why = probe(url)
+    if why:
+        log(f"remote unreachable, retrying next interval: {why}")
+        return result("unreachable", why, booted_commit=booted)
+
+    # 1. Metadata only: the commit object and its signature, no content.
+    r = run("ostree", ["pull", "--commit-metadata-only", REMOTE, BRANCH], timeout=600)
+    if r.returncode != 0:
+        msg = detail(r)
+        kind = classify_pull_error(r.stderr + r.stdout)
+        if kind == "network":
+            log(f"metadata pull failed (network), retrying next interval: {msg}")
+            return result("unreachable", msg, booted_commit=booted)
+        reason = f"pull of {REF} failed ({kind}): {msg}"
+        log(reason)
+        record_failed(None, None, booted, reason)
+        return result("failed", reason, booted_commit=booted)
+
+    commit = run_ok("ostree", ["rev-parse", REF]).strip()
+    version = commit_version(REF)
+    base = {"commit": commit, "version": version, "booted_commit": booted}
+    if commit == booted:
+        return result("up-to-date", None, **base)
+
+    if not retry:
+        last = read_json(_update_state_path()) or {}
+        if last.get("outcome") in ("failed", "rolled-back") and last.get("deployed_commit") == (
+            commit
+        ):
+            return result(
+                "held",
+                f"{commit[:12]} {last['outcome']} here before ({last.get('reason')}); "
+                "waiting for a newer commit",
+                **base,
+            )
+        if tb.get("status") == "rolled-back" and tb.get("commit") == commit:
+            return result(
+                "held",
+                f"{commit[:12]} rolled back here before ({tb.get('reason')}); "
+                "waiting for a newer commit",
+                **base,
+            )
+
+    # 2. The content. Verification runs again on the full pull.
+    log(f"pulling {REF} {commit} ({version or 'no version'})")
+    r = run("ostree", ["pull", REMOTE, BRANCH], timeout=4 * 3600)
+    if r.returncode != 0:
+        msg = detail(r)
+        kind = classify_pull_error(r.stderr + r.stdout)
+        if kind == "network":
+            log(f"pull interrupted (network), retrying next interval: {msg}")
+            return result("unreachable", msg, **base)
+        reason = f"pull of {REF} {commit} failed ({kind}): {msg}"
+        log(reason)
+        record_failed(commit, version, booted, reason)
+        return result("failed", reason, **base)
+
+    # 3. Hand it to the trial-boot helper (docs/os/rollback.md).
+    r = run("trialboot", ["stage", REF], timeout=3600)
+    if r.returncode == 1:
+        msg = detail(r)
+        log(f"trial-boot helper refused to stage now, retrying next interval: {msg}")
+        return result("deferred", msg, **base)
+    if r.returncode != 0:
+        reason = f"staging {commit} failed: {detail(r)}"
+        log(reason)
+        record_failed(commit, version, booted, reason)
+        return result("failed", reason, **base)
+
+    log(f"staged {commit} as a one-shot trial boot")
+    delay, note = schedule_reboot()
+    return result("staged", note, reboot_in=delay, **base)
+
+
+def lock():
+    path = _lock_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError as exc:
+        raise EnvFail(
+            f"cannot open the lock {path}: {exc} (`run` is for root and "
+            f"{UNIT}; use `{PROG} now`)"
+        ) from exc
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        log(f"another check holds {path}; waiting for it")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def cmd_run(argv: list[str], as_json: bool) -> int:
+    retry = "--retry" in argv
+    extra = [a for a in argv if a != "--retry"]
+    if extra:
+        raise UsageError(f"usage: {PROG} run [--retry] [--json]")
+    fd = lock()
+    try:
+        try:
+            res = check(retry)
+        except EnvFail as exc:
+            log(str(exc))
+            res = result("error", str(exc))
+        write_json(_result_path(), res)
+    finally:
+        os.close(fd)
+    emit(res, as_json)
+    return res["exit_code"]
+
+
+def cmd_now(argv: list[str], as_json: bool) -> int:
+    if argv:
+        raise UsageError(f"usage: {PROG} now [--json]")
+    before = (read_json(_result_path()) or {}).get("run_id")
+    # Starting a oneshot unit blocks until it has run. If a timer run is in progress,
+    # systemd attaches this request to it and we report that run's result.
+    r = run("systemctl", ["--no-ask-password", "start", UNIT], timeout=6 * 3600)
+    res = read_json(_result_path())
+    if res is None or res.get("run_id") == before or res.get("result") not in EXIT:
+        why = detail(r) if r.returncode != 0 else f"{UNIT} did not run (condition not met?)"
+        raise EnvFail(f"systemctl start {UNIT}: {why}")
+    emit(res, as_json)
+    return EXIT[res["result"]]
+
+
+def cmd_status(argv: list[str], as_json: bool) -> int:
+    if argv:
+        raise UsageError(f"usage: {PROG} status [--json]")
+    res = read_json(_result_path())
+    if res is None:
+        res = result("none", "no check has run since boot")
+    emit(res, as_json)
+    return 0
+
+
+COMMANDS = {"run": cmd_run, "now": cmd_now, "status": cmd_status}
+
+
+def main(argv: list[str]) -> int:
+    as_json = "--json" in argv
+    argv = [a for a in argv if a != "--json"]
+    try:
+        if not argv or argv[0] not in COMMANDS:
+            raise UsageError(f"usage: {PROG} {{{'|'.join(COMMANDS)}}} [--json]")
+        return COMMANDS[argv[0]](argv[1:], as_json)
+    except (UsageError, EnvFail) as exc:
+        log(str(exc))
+        emit(result("error", str(exc)), as_json)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - exit 1 means "recorded failure"; never leak it
+        msg = f"internal error: {exc!r}"
+        log(msg)
+        emit(result("error", msg), as_json)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

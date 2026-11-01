@@ -1,0 +1,18 @@
+# Promote a healthy CultureOS trial deployment to default (decision c39,
+# docs/os/rollback.md). Runs only once boot-complete.target is reached, i.e.
+# after cultureos-trialboot-health.service passed, and after
+# systemd-bless-boot.service blessed the trial's boot entry. The helper checks
+# again that a passing health record exists for this boot before it calls
+# `ostree admin set-default`.
+[Unit]
+Description=Promote a healthy CultureOS trial deployment to default
+Requires=boot-complete.target
+After=boot-complete.target cultureos-trialboot-health.service systemd-bless-boot.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/cultureos-trialboot promote
+
+[Install]
+WantedBy=multi-user.target

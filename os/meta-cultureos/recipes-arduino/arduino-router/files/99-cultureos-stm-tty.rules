@@ -1,0 +1,4 @@
+# The MCU enumerates as a USB CDC-ACM device (1209:ca01) on the board's
+# internal USB. Give it the stable name /dev/ttySTM0 (same match as the
+# factory image) so arduino-router never depends on ttyACM numbering.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="ca01", SYMLINK+="ttySTM0", GROUP="arduino-router", MODE="0660"

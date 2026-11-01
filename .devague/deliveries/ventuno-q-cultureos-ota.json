@@ -2,7 +2,7 @@
   "plan_slug": "ventuno-q-cultureos-ota",
   "schema_version": 2,
   "created": "2026-11-01T07:39:19Z",
-  "updated": "2026-11-01T13:33:31Z",
+  "updated": "2026-11-01T14:03:04Z",
   "deviations": [
     {
       "id": "d1",
@@ -103,6 +103,30 @@
       "status": "approved",
       "classification": "risky",
       "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "t19 audit-image.sh narrows d6's secrets reading: a Tailscale key is a key-shaped string (tskey-<kind>-<id>-<secret> or legacy tskey-<hex>), not any 'tskey-'; PEM private keys are flagged as full BEGIN/body/END blocks in non-ELF files",
+      "task_ref": "t19",
+      "reason": "on the integrated image tailscaled contains the constant 'tskey-wrap' and sshd/gnutls/NetworkManager/mime databases embed bare PEM markers; gnutls embeds FIPS self-test EC keys. The narrowed checks still catch baked key files (they found libvirt's) and any real Tailscale key, binaries included.",
+      "affects": [
+        "t10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "t19 removes packagegroup-qcom-virtualization (libvirt + qemu) from cultureos-image",
+      "task_ref": "t19",
+      "reason": "libvirt-libvirtd ships pre-generated private keys in /etc/pki/libvirt/private, identical on every board built from the image (audit-image.sh finding); CultureOS runs no VMs; removes ~30 packages",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 9
     }
   ],
   "evidence": [],

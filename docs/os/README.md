@@ -50,7 +50,19 @@ Docs and scripts of the OS workstream:
 | `docs/os/recovery.md` | Restore-to-official-image path (EDL reflash) | present |
 | `docs/os/reference-build.md` | Building the upstream reference image on the Spark | present |
 | `docs/os/update-state.md` | OTA update state and `cultureos os status` | present |
+| `docs/os/release-repo.md` | Signed OSTree release repo on the Spark, publish script, Tailscale serving | present |
+| `docs/os/local-access.md` | Local no-network shell: USB adbd gadget + serial getty | present |
 | `docs/os/building.md` | Building CultureOS: `meta-cultureos`, pinned kas manifest, shared caches, `bb.sh` | present |
+| `docs/os/release-bundle.md` | Local release bundle with Qualcomm licence and manifest | present |
+| `docs/os/tailscale.md` | Tailscale recipe, state dir, manual enrollment | present |
+| `docs/os/reproducibility.md` | Local source + sstate mirror, offline (`BB_NO_NETWORK=1`) second build | present |
+| `docs/os/rollback.md` | Rollback: one-shot trial boot, watchdog, panic reboot, health-gated promotion | present |
+| `docs/os/culture-node.md` | Culture mesh node: `recipes-culture` packaging route, `culture-node.service`, state in `/var/lib/culture` | present |
+| `docs/os/arduino-router.md` | The `arduino-router` recipe and unit (owns the MCU serial link) | present |
+| `docs/os/security.md` | Device hardening: key-only sshd, signed OSTree remote, open upstream root access | present |
+| `docs/os/provisioning.md` | First-boot provisioning: login user `arduino`, SSH key, Wi-Fi, hostname from `cultureos-provision.toml` | present |
+| `docs/os/update-agent.md` | Update agent: hourly signed pull (timer), `cultureos-update now` over ssh (push), hand-off to the trial boot | present |
+| `docs/os/release-workflow.md` | culture-rules release rule/workflow: build, bundle, sign + publish, trigger the board, record the outcome | present |
 
 Related code (present): `os/scripts/install-flasher.sh`,
 `os/scripts/capture-baseline.sh`, `os/scripts/build-reference.sh`,

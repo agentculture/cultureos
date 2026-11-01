@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T07:33:47Z",
-  "updated": "2026-11-01T13:27:58Z",
+  "updated": "2026-11-01T14:08:30Z",
   "targets": [
     {
       "id": "c1",
@@ -881,8 +881,8 @@
       "text": "local no-network shell (c28/h23, t11) uses upstream adbd started unconditionally; meta-oe's Debian adbd patches disable adb authorization, so physical access to the USB device port = root shell. Conflicts with t12 hardening (root locked, adbd removal proposed for t19). Needs an operator decision before t19 wires packages in.",
       "kind": "unknown_nonblocking",
       "task_id": "t19",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Operator chose 'Login consoles' (deviation d3): adbd removed (t11 rework, t19 PACKAGE_INSTALL:remove); local access is CDC-ACM ttyGS1 + UART ttyMSM0 logins for the provisioned user; root locked."
     },
     {
       "id": "r12",
@@ -897,8 +897,8 @@
       "text": "culture-node listens on 0.0.0.0:6667 (IRC) and :7680 (webhook) by culture defaults; nothing limits them to the tailnet yet (t13). Needs a bind address or firewall rule before the image ships.",
       "kind": "follow_up",
       "task_id": "t19",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "t19: culture-node-start defaults --host to the board's tailnet IPv4 (tailscale ip -4), loopback fallback, never 0.0.0.0; the webhook already binds 127.0.0.1 (agentirc). Tests in tests/os/test_culture_node.py."
     },
     {
       "id": "r14",

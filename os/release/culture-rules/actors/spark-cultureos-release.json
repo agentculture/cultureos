@@ -1,0 +1,75 @@
+{
+  "capabilities": [
+    "shell"
+  ],
+  "description": "Runs the CultureOS release steps (os/scripts/release-step.sh in a clean clone of cultureos on spark). argv[0] is a placeholder: set it to the clone's absolute path before import (docs/os/release-workflow.md).",
+  "enabled": true,
+  "id": "spark-cultureos-release",
+  "kind": "runner",
+  "machine": "spark",
+  "name": "CultureOS release runner",
+  "params": {
+    "commands": {
+      "release_build": {
+        "argv": [
+          "/REPLACE-WITH-RELEASE-CHECKOUT/os/scripts/release-step.sh",
+          "build"
+        ],
+        "params": {},
+        "timeout": 21600
+      },
+      "release_bundle": {
+        "argv": [
+          "/REPLACE-WITH-RELEASE-CHECKOUT/os/scripts/release-step.sh",
+          "bundle",
+          "{version}"
+        ],
+        "params": {
+          "version": "string"
+        },
+        "timeout": 1800
+      },
+      "release_publish": {
+        "argv": [
+          "/REPLACE-WITH-RELEASE-CHECKOUT/os/scripts/release-step.sh",
+          "publish"
+        ],
+        "params": {},
+        "timeout": 1800
+      },
+      "release_status": {
+        "argv": [
+          "/REPLACE-WITH-RELEASE-CHECKOUT/os/scripts/release-step.sh",
+          "status",
+          "{update_json}",
+          "{wait_s}"
+        ],
+        "params": {
+          "update_json": "string",
+          "wait_s": "int"
+        },
+        "timeout": 1500
+      },
+      "release_sync": {
+        "argv": [
+          "/REPLACE-WITH-RELEASE-CHECKOUT/os/scripts/release-step.sh",
+          "sync",
+          "{ref}"
+        ],
+        "params": {
+          "ref": "string"
+        },
+        "timeout": 300
+      },
+      "release_trigger": {
+        "argv": [
+          "/REPLACE-WITH-RELEASE-CHECKOUT/os/scripts/release-step.sh",
+          "trigger"
+        ],
+        "params": {},
+        "timeout": 900
+      }
+    }
+  },
+  "schema_version": "1.0"
+}

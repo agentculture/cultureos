@@ -1,0 +1,35 @@
+# Culture mesh node: the culture (agentirc) server for this board.
+# Installed by recipes-culture/culture-node; see docs/os/culture-node.md.
+# Identity and state live in /var/lib/culture (HOME of the culture system
+# user), which systemd creates at start: OSTree does not carry build-time
+# /var content to a deployed system.
+[Unit]
+Description=Culture mesh node (culture server)
+Documentation=https://culture.dev
+Wants=network-online.target
+After=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+User=culture
+Group=culture
+StateDirectory=culture
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/culture
+Environment=HOME=/var/lib/culture
+Environment=PYTHONUNBUFFERED=1
+# Optional operator settings (node name, ports); no secrets belong here.
+EnvironmentFile=-/var/lib/culture/node.env
+ExecStart=/usr/libexec/culture-node/culture-node-start
+Restart=on-failure
+RestartSec=5
+# culture's daemon exit contract: 78 is a permanent config error; park the
+# unit instead of crash-looping.
+RestartPreventExitStatus=78
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

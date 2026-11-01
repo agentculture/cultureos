@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T06:19:47Z",
-  "updated": "2026-11-01T12:34:32Z",
+  "updated": "2026-11-01T13:59:20Z",
   "claims": [
     {
       "id": "c1",
@@ -1104,6 +1104,17 @@
       "skipped_check": "throwaway IMAGE_INSTALL:append image build per the t11 instruction",
       "refs": [
         "t11"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l9",
+      "code": "control-absent",
+      "what": "t18 ran 'culture-rules workflows import' (no --apply) against the reachable default culture-rules API without first checking which server it targets; it answered HTTP 401 and nothing was written, but the brief allowed only offline validation",
+      "skipped_check": "check the CLI's resolved API URL / use the offline read_bundle validator only",
+      "refs": [
+        "t18"
       ],
       "origin": "llm",
       "status": "proposed"

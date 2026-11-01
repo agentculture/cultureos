@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-11-01
+
+### Added
+
+- CultureOS image recipes under `os/meta-cultureos/` (plan waves 2-4): arduino-router 0.11.0 on the stable `/dev/ttySTM0` (t8, d5); Tailscale bbappend with state in `/var/lib/tailscale` (t9); first-boot provisioning of the `arduino` user, SSH key, password hash and Wi-Fi from a TOML file (t10); USB CDC-ACM + UART login consoles, no adbd (t11, d3); key-only sshd, signed OSTree remote and ed25519 in ostree (t12, d4); Culture node with its 77-package Python stack built from pinned sdists (t13); one-shot trial boot, early watchdog, panic reboot and health-gated promotion (t15); timer pull + `cultureos-update now` update agent (t16).
+- `cultureos-image` integration (t19): all CultureOS packages wired in; root locked, upstream root-login/empty-password features and the fixed root password removed, adbd and `packagegroup-qcom-virtualization` (libvirt baked identical private keys, d9) removed; culture node listens on the tailnet only (r13). Built image audited clean.
+- `os/scripts/audit-image.sh`: no data outside `/var`, secrets scan (d6/d8), root locked.
+- Offline-reproducible builds from a local mirror with `BB_NO_NETWORK=1` (`os/kas/mirror.yml`, `offline.yml`, `os/scripts/refresh-mirror.sh`, t6).
+- Release side: `os/scripts/bundle-release.sh` with the Qualcomm licence (t7), `os/scripts/publish-ostree.sh` signed OSTree repo served over Tailscale (t17), and the culture-rules release workflow `os/release/culture-rules/` (t18).
+- Docs under `docs/os/` for every component; devague records (deviations d3-d9, risks r10-r14, lapses l6-l9).
+
+### Changed
+
+- Harness files describe the integrated image and release pipeline; hardware tasks t20-t22 stay planned until the NVMe arrives.
+- 85 composite assertions in the new OS tests split (SonarCloud python:S9073).
+
 ## [0.11.1] - 2026-11-01
 
 ### Added

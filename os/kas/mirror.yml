@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/siemens/kas/master/kas/schema-kas.json
+#
+# Local source + sstate mirror. Stack it after the manifest:
+#
+#   KAS_REPO_REF_DIR=$HOME/yocto/mirror \
+#   CULTUREOS_KAS_CONFIG=os/kas/cultureos.yml:os/kas/mirror.yml os/scripts/bb.sh "$PWD"
+#
+# The mirror lives outside the repo (docs/os/reproducibility.md). kas-container
+# mounts the directory named by KAS_REPO_REF_DIR at /repo-ref, so the layout
+# $KAS_REPO_REF_DIR/{downloads,sstate-cache} is seen as /repo-ref/... here.
+# Populate and refresh it with os/scripts/refresh-mirror.sh.
+#
+# BitBake tries PREMIRRORS before the upstream URL, so with the mirror mounted
+# nothing is fetched from the network that the mirror already holds, including
+# the QCS8300 boot binaries from softwarecenter.qualcomm.com. Add
+# os/kas/offline.yml to make any miss a hard failure.
+
+header:
+  version: 14
+
+local_conf_header:
+  cultureos_mirror: |
+    PREMIRRORS:prepend = "\
+        git://.*/.* file:///repo-ref/downloads/ \n \
+        gitsm://.*/.* file:///repo-ref/downloads/ \n \
+        https?://.*/.* file:///repo-ref/downloads/ \n \
+        ftp://.*/.* file:///repo-ref/downloads/ \n \
+        "
+    SSTATE_MIRRORS:prepend = "file://.* file:///repo-ref/sstate-cache/PATH \n "
