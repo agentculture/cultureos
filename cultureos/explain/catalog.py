@@ -122,6 +122,29 @@ itself (distinct from the global `overview`, which describes the agent).
 """
 
 
+_OS = """\
+# cultureos os status
+
+Report the OSTree deployment, version and last update outcome.
+
+Sources: `ostree admin status` (override with `CULTUREOS_OSTREE_STATUS_CMD`;
+JSON or classic text output is accepted) and the update agent's state file
+`/var/lib/cultureos/update-state.json` (override with `CULTUREOS_UPDATE_STATE`;
+schema in `docs/os/update-state.md`). A missing state file means outcome `none`.
+
+Outcome is one of `applied`, `rolled-back`, `failed`, `none`.
+
+Exit codes: 0 healthy (`applied` / `none`); 1 degraded (`rolled-back` /
+`failed`; the report is still written to stdout); 2 not an OSTree system or an
+unreadable/invalid source or state file.
+
+## Usage
+
+    cultureos os status
+    cultureos os status --json
+"""
+
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("cultureos",): _ROOT,
@@ -132,4 +155,6 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("doctor",): _DOCTOR,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
+    ("os",): _OS,
+    ("os", "status"): _OS,
 }

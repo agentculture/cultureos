@@ -66,6 +66,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from cultureos.cli._commands import doctor as _doctor_cmd
     from cultureos.cli._commands import explain as _explain_cmd
     from cultureos.cli._commands import learn as _learn_cmd
+    from cultureos.cli._commands import os_status as _os_group
     from cultureos.cli._commands import overview as _overview_cmd
     from cultureos.cli._commands import whoami as _whoami_cmd
 
@@ -88,6 +89,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _overview_cmd.register(sub)
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
+    _os_group.register(sub)
     # Register your own noun groups here:
     #   from cultureos.cli._commands import my_noun as _my_noun_group
     #   _my_noun_group.register(sub)
