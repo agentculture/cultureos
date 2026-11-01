@@ -110,4 +110,7 @@ prep), `os/scripts/capture-baseline.sh` + `docs/os/board-baseline.md`, and the
 `cultureos os status [--json]` verb (`docs/os/update-state.md`). The spec is
 `docs/specs/2026-11-01-ventuno-q-cultureos-ota.md`, the plan
 `docs/plans/2026-11-01-ventuno-q-cultureos-ota.md`. The `meta-cultureos`
-layer, kas manifest and the build/release pipeline are (planned).
+layer skeleton, the pinned kas manifest `os/kas/cultureos.yml` (+ lock) and
+the shared, flock-serialized build wrapper `os/scripts/bb.sh` are on disk
+(`docs/os/building.md`); every Yocto build goes through `bb.sh`. CultureOS
+packages and the release pipeline are (planned).

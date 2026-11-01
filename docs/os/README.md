@@ -50,7 +50,9 @@ Docs and scripts of the OS workstream:
 | `docs/os/recovery.md` | Restore-to-official-image path (EDL reflash) | present |
 | `docs/os/reference-build.md` | Building the upstream reference image on the Spark | present |
 | `docs/os/update-state.md` | OTA update state and `cultureos os status` | present |
+| `docs/os/building.md` | Building CultureOS: `meta-cultureos`, pinned kas manifest, shared caches, `bb.sh` | present |
 
 Related code (present): `os/scripts/install-flasher.sh`,
-`os/scripts/capture-baseline.sh`, `os/scripts/build-reference.sh` and the
-`cultureos os status` verb.
+`os/scripts/capture-baseline.sh`, `os/scripts/build-reference.sh`,
+`os/scripts/bb.sh`, the `os/meta-cultureos` layer, the `os/kas/cultureos.yml`
+manifest (with its lock file) and the `cultureos os status` verb.

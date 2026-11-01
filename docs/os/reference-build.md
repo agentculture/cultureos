@@ -39,8 +39,10 @@ same repository").
 | `sstate-cache/` | 32 GB |
 
 The disk figure is the final size of the build dir. Peak use was not sampled
-during the build. `rm_work` is not enabled, so nothing is deleted
-mid-build and the final size is a close upper-bound proxy for the peak.
+during the build. `rm_work` is enabled (upstream `ci/base.yml`), so each
+recipe's work dir is deleted once it has built, and the peak can exceed the
+final size. (An earlier version of this page said `rm_work` was off; the
+generated `local.conf` shows `INHERIT += "rm_work"`.)
 
 28 warnings, all of them upstream fetch fallbacks to mirrors (for example
 `volume-key`, `trousers`, `fio`). None failed the build.
@@ -51,13 +53,13 @@ mid-build and the final size is a close upper-bound proxy for the peak.
 |-------|--------|
 | meta-qcom-arduino (main) | `cdc9ba7c16f44cc00705113bd56bcda0a848c7b1` |
 | bitbake | `1763256342ae4d7f8028e8222400c6fc8c24d4a3` |
-| oe-core | `5e5cbc72ba0f88f82dd5781881922cba827553e5` |
+| oe-core | `fa83da7da277a641c3a997d3da26041fa46d48ab` (kas applied 3 meta-qcom patches on top, local HEAD `5e5cbc72`) |
 | meta-qcom | `4cd87176382a393d9558690e892d5aa9d2343ee6` |
 | meta-qcom-distro | `5e4fabeba8b9666b33a037f8da2f96ab1dbf4924` |
 | meta-openembedded | `53276e6882048b990201b3c230e0b1fd0b8311b6` |
 | meta-updater | `068174256b46cdc14eaee9bfaf0fddb48b55b95e` |
 | meta-security | `663084f075b98a4b91d86ca0d254a7a7bf1fd0e0` |
-| meta-selinux | `f08bba920b73d985d7c80b87417ae99d66d1747d` |
+| meta-selinux | `c716a95ae931ee2f1c7cd90e83208ce0bcd499d6` (kas applied 2 meta-qcom patches on top, local HEAD `f08bba92`) |
 | meta-virtualization | `b1846974dc1eeaee327310e9964ede7903eb8a74` |
 | meta-audioreach | `e971991b11bed9ce8e7c83ece9df14cd94653f2d` |
 | meta-ai | `ec488d7f302c0bccd4a903c0963e9794f4409592` |
@@ -94,6 +96,9 @@ Also deployed: kernel `7.2+7.3-rc6` (`Image`, `linux-ventuno-q.efi`), DTB
   Switching to the SOTA distro is part of the CultureOS kas manifest (t5).
 - **A warm rebuild should be much faster.** The 42 GB downloads and 32 GB
   sstate cache are the input to t5's shared `DL_DIR` / `SSTATE_DIR`
-  (deviation d1).
+  (deviation d1). They now live in `~/yocto/cache/` (see
+  [`building.md`](building.md)); `build/downloads` and `build/sstate-cache`
+  here are symlinks to them, and `build-reference.sh` passes the shared
+  dirs to kas-container.
 - Nothing was flashed. The `.qcomflash` output is not written to the board
   before the NVMe arrives (decision q7).

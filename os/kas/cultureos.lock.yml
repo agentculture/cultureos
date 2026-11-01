@@ -1,0 +1,30 @@
+# kas lock file for cultureos.yml (kas loads it automatically).
+# Regenerate: os/scripts/bb.sh "$PWD" --kas dump --lock --indent 2 > os/kas/cultureos.lock.yml
+header:
+  version: 14
+overrides:
+  repos:
+    meta-qcom:
+      commit: 4cd87176382a393d9558690e892d5aa9d2343ee6
+    oe-core:
+      commit: fa83da7da277a641c3a997d3da26041fa46d48ab
+    bitbake:
+      commit: 1763256342ae4d7f8028e8222400c6fc8c24d4a3
+    meta-qcom-arduino:
+      commit: cdc9ba7c16f44cc00705113bd56bcda0a848c7b1
+    meta-qcom-distro:
+      commit: 5e4fabeba8b9666b33a037f8da2f96ab1dbf4924
+    meta-openembedded:
+      commit: 53276e6882048b990201b3c230e0b1fd0b8311b6
+    meta-ai:
+      commit: ec488d7f302c0bccd4a903c0963e9794f4409592
+    meta-virtualization:
+      commit: b1846974dc1eeaee327310e9964ede7903eb8a74
+    meta-audioreach:
+      commit: e971991b11bed9ce8e7c83ece9df14cd94653f2d
+    meta-selinux:
+      commit: c716a95ae931ee2f1c7cd90e83208ce0bcd499d6
+    meta-updater:
+      commit: 068174256b46cdc14eaee9bfaf0fddb48b55b95e
+    meta-security:
+      commit: 663084f075b98a4b91d86ca0d254a7a7bf1fd0e0

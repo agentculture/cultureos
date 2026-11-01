@@ -9,6 +9,8 @@
 #   CULTUREOS_REF_BRANCH  meta-qcom-arduino branch (default: main)
 #   CULTUREOS_BB_THREADS  BB_NUMBER_THREADS (default: 8)
 #   CULTUREOS_PM_JOBS     PARALLEL_MAKE -j  (default: 8)
+#   DL_DIR / SSTATE_DIR   shared caches (default: $HOME/yocto/cache/{downloads,sstate-cache},
+#                         the same ones os/scripts/bb.sh uses; see docs/os/building.md)
 #
 # Records host arch, timing, disk use and layer SHAs to $REF_DIR/build-report.txt.
 set -euo pipefail
@@ -17,6 +19,10 @@ REF_DIR="${CULTUREOS_REF_DIR:-$HOME/yocto/cultureos-ref}"
 BRANCH="${CULTUREOS_REF_BRANCH:-main}"
 BB_THREADS="${CULTUREOS_BB_THREADS:-8}"
 PM_JOBS="${CULTUREOS_PM_JOBS:-8}"
+# kas-container mounts these into the container. The old build/downloads and
+# build/sstate-cache are host symlinks that do not resolve inside it.
+export DL_DIR="${DL_DIR:-$HOME/yocto/cache/downloads}"
+export SSTATE_DIR="${SSTATE_DIR:-$HOME/yocto/cache/sstate-cache}"
 REPO_URL="https://github.com/qualcomm-linux/meta-qcom-arduino.git"
 
 command -v kas-container >/dev/null || { echo "error: kas-container not on PATH (uv tool install kas)" >&2; exit 2; }
