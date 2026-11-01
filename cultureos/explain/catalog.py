@@ -134,9 +134,15 @@ schema in `docs/os/update-state.md`). A missing state file means outcome `none`.
 
 Outcome is one of `applied`, `rolled-back`, `failed`, `none`.
 
+`version` is the booted deployment's `Version` metadata; it falls back to the
+state file's `deployed_version` only when `deployed_commit` is the booted
+commit. Each deployment carries `booted`, `pending`, `staged` and `rollback`
+flags; a deployment queued with `ostree admin deploy --stage` is `staged` (and
+`pending`).
+
 Exit codes: 0 healthy (`applied` / `none`); 1 degraded (`rolled-back` /
-`failed`; the report is still written to stdout); 2 not an OSTree system or an
-unreadable/invalid source or state file.
+`failed`; the report is still written to stdout); 2 not an OSTree system,
+no booted deployment, or an unreadable/invalid status source or state file.
 
 ## Usage
 

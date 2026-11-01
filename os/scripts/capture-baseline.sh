@@ -10,8 +10,16 @@ GUID=8be4df61-93ca-11d2-aa0d-00e098032b8c
 
 section() { # title, remote-command
   printf '### %s\n\n```console\n$ ssh %s "%s"\n' "$1" "$HOST" "$2"
-  ssh -o BatchMode=yes "$HOST" "$2" | expand -t 8
+  local rc=0
+  ssh -o BatchMode=yes "$HOST" "$2" | expand -t 8 || rc=$?
+  # A non-zero remote command (e.g. `systemctl is-active` on a stopped unit) is
+  # part of the baseline: record it and go on. ssh's own failure (255) aborts.
+  [ "$rc" -eq 0 ] || printf '(exit %s)\n' "$rc"
   printf '```\n\n'
+  if [ "$rc" -eq 255 ]; then
+    echo "ssh to $HOST failed; capture aborted" >&2
+    exit 255
+  fi
 }
 
 section "os-release" "cat /etc/os-release"

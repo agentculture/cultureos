@@ -145,3 +145,90 @@ def test_bare_os_runs_status(fake, capsys) -> None:
 
 def test_explain_entry() -> None:
     assert ("os", "status") in known_paths()
+
+
+# --- review fixes (PR #5) -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    ["", "   ", "cat 'unbalanced"],
+    ids=["empty", "blank", "unbalanced-quote"],
+)
+def test_bad_status_command_is_env_error(monkeypatch, capsys, cmd) -> None:
+    monkeypatch.setenv("CULTUREOS_OSTREE_STATUS_CMD", cmd)
+    rc, out, err = _run(capsys, "--json")
+    assert rc == 2, err
+    assert out == ""
+    assert "unexpected" not in err
+
+
+def test_non_utf8_ostree_output_is_env_error(tmp_path, monkeypatch, capsys) -> None:
+    raw = tmp_path / "raw.out"
+    raw.write_bytes(b"* cultureos \xff\xfe.0\n")
+    monkeypatch.setenv("CULTUREOS_OSTREE_STATUS_CMD", f"cat {raw}")
+    rc, _, err = _run(capsys, "--json")
+    assert rc == 2, err
+    assert "unexpected" not in err
+
+
+def test_version_not_taken_from_failed_update_target(fake, capsys) -> None:
+    # Rolled back to a commit without Version metadata: the version the update
+    # aimed for (deployed_version) is NOT what is running.
+    fake(
+        ostree="* cultureos 3f2a9c1d.0\n  cultureos 77aa11bb.0 (rollback)\n",
+        state={
+            "outcome": "rolled-back",
+            "deployed_commit": "77aa11bb",
+            "deployed_version": "0.5.0",
+        },
+    )
+    _, out, _ = _run(capsys, "--json")
+    assert json.loads(out)["version"] is None
+
+
+def test_version_falls_back_when_state_names_booted_commit(fake, capsys) -> None:
+    fake(
+        ostree="* cultureos 3f2a9c1d.0\n",
+        state={"outcome": "applied", "deployed_commit": "3f2a9c1d", "deployed_version": "0.4.0"},
+    )
+    _, out, _ = _run(capsys, "--json")
+    assert json.loads(out)["version"] == "0.4.0"
+
+
+def test_json_flag_on_noun_survives_verb(fake, capsys) -> None:
+    fake(state={"outcome": "applied"})
+    rc = main(["os", "--json", "status"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert json.loads(out)["outcome"] == "applied"
+
+
+def test_staged_text_deployment_is_reported(fake, capsys) -> None:
+    fake(ostree="  cultureos 77aa11bb.0 (staged)\n* cultureos 3f2a9c1d.0\n", state=None)
+    _, out, _ = _run(capsys, "--json")
+    staged = json.loads(out)["deployments"][0]
+    assert staged["staged"] is True and staged["pending"] is True
+
+
+def test_staged_json_deployment_is_reported(fake, capsys) -> None:
+    fake(
+        ostree=json.dumps(
+            {
+                "deployments": [
+                    {"osname": "cultureos", "checksum": "77aa11bb", "staged": True},
+                    {"osname": "cultureos", "checksum": "3f2a9c1d", "booted": True},
+                ]
+            }
+        )
+    )
+    _, out, _ = _run(capsys, "--json")
+    staged = json.loads(out)["deployments"][0]
+    assert staged["staged"] is True and staged["pending"] is True
+
+
+def test_no_booted_deployment_is_env_error(fake, capsys) -> None:
+    fake(ostree=json.dumps({"deployments": [{"osname": "cultureos", "checksum": "3f2a9c1d"}]}))
+    rc, out, err = _run(capsys, "--json")
+    assert rc == 2, err
+    assert out == ""

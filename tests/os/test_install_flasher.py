@@ -14,12 +14,13 @@ SCRIPT = ROOT / "os" / "scripts" / "install-flasher.sh"
 DOC = ROOT / "docs" / "os" / "recovery.md"
 
 
-def _fake_tarball(tmp_path: Path, version: str) -> Path:
+def _fake_tarball(tmp_path: Path, version: str, body: bytes | None = None) -> Path:
     # Like the real CLI: `--version` is an unknown flag, `version` is the subcommand.
-    body = (
-        f'#!/bin/sh\n[ "$1" = version ] || exit 1\n'
-        f"echo 'Arduino Flasher CLI version {version}'\n"
-    ).encode()
+    if body is None:
+        body = (
+            f'#!/bin/sh\n[ "$1" = version ] || exit 1\n'
+            f"echo 'Arduino Flasher CLI version {version}'\n"
+        ).encode()
     path = tmp_path / "fake.tar.gz"
     with tarfile.open(path, "w:gz") as tar:
         info = tarfile.TarInfo("arduino-flasher-cli")
@@ -76,6 +77,39 @@ def test_rejects_too_old_version(tmp_path):
     sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
     proc, _ = _run(tmp_path, tarball, sha)
     assert proc.returncode != 0
+
+
+def _with_existing(tmp_path: Path) -> Path:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    old = bindir / "arduino-flasher-cli"
+    old.write_text("#!/bin/sh\necho 'Arduino Flasher CLI version 0.5.4'\n")
+    old.chmod(0o755)
+    return old
+
+
+def test_unparseable_version_reports_and_installs_nothing(tmp_path):
+    tarball = _fake_tarball(tmp_path, "", body=b"#!/bin/sh\necho garbage\n")
+    sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
+    proc, bindir = _run(tmp_path, tarball, sha)
+    assert proc.returncode != 0
+    assert "version" in proc.stderr
+    assert not (bindir / "arduino-flasher-cli").exists()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [b"#!/bin/sh\nexit 126\n", b"#!/bin/sh\necho 'Arduino Flasher CLI version 0.5.3'\n"],
+    ids=["not-runnable", "too-old"],
+)
+def test_failed_verification_keeps_previous_install(tmp_path, body):
+    old = _with_existing(tmp_path)
+    before = old.read_bytes()
+    tarball = _fake_tarball(tmp_path, "", body=body)
+    sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
+    proc, _ = _run(tmp_path, tarball, sha)
+    assert proc.returncode != 0
+    assert old.read_bytes() == before
 
 
 DOC_REQUIRED = [

@@ -27,6 +27,10 @@ cd "$REF_DIR"
 
 if [ ! -d meta-qcom-arduino/.git ]; then
   git clone --branch "$BRANCH" "$REPO_URL" meta-qcom-arduino
+elif ! git -C meta-qcom-arduino checkout -q "$BRANCH" 2>/dev/null; then
+  # Reused clone without the requested branch locally: fetch it, then switch.
+  git -C meta-qcom-arduino fetch -q origin "$BRANCH:$BRANCH"
+  git -C meta-qcom-arduino checkout -q "$BRANCH"
 fi
 
 # kas refuses to concatenate files from a git repo with files outside it, so
@@ -88,7 +92,9 @@ end=$(date +%s)
     [ -d "$d/.git" ] && echo "  ${d%/}: $(git -C "$d" rev-parse HEAD)"
   done
   echo "qcomflash_dirs:"
-  find "$REF_DIR/build/tmp/deploy/images" -maxdepth 2 -name '*.qcomflash' 2>/dev/null | sed 's/^/  /'
+  # A failed build may have no deploy dir; the report must still be written.
+  find "$REF_DIR/build/tmp/deploy/images" -maxdepth 2 -name '*.qcomflash' 2>/dev/null \
+    | sed 's/^/  /' || true
 } >> "$REPORT"
 
 cat "$REPORT"

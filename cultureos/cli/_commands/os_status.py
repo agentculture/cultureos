@@ -37,23 +37,36 @@ DEGRADED_OUTCOMES = ("rolled-back", "failed")
 _DEPLOY_RE = re.compile(r"^(?P<marker>[ *])\s*(?P<osname>\S+)\s+(?P<commit>[0-9a-f]{6,})(\.\d+)?")
 
 
-def _run_ostree() -> str:
-    cmd = shlex.split(os.environ.get("CULTUREOS_OSTREE_STATUS_CMD", DEFAULT_OSTREE_CMD))
-    not_ostree = CliError(
+def _not_ostree(detail: str) -> CliError:
+    return CliError(
         code=EXIT_ENV_ERROR,
-        message="not an OSTree system: cannot read deployment status",
+        message=f"not an OSTree system: cannot read deployment status ({detail})",
         remediation="run on an OSTree host, or set CULTUREOS_OSTREE_STATUS_CMD",
     )
+
+
+def _run_ostree() -> str:
+    # Every failure to obtain status is an environment error (exit 2): exit 1 is
+    # reserved for "degraded", which a health gate may act on.
+    raw = os.environ.get("CULTUREOS_OSTREE_STATUS_CMD", DEFAULT_OSTREE_CMD)
+    try:
+        cmd = shlex.split(raw)
+    except ValueError as err:
+        raise _not_ostree(f"cannot parse CULTUREOS_OSTREE_STATUS_CMD: {err}") from err
+    if not cmd:
+        raise _not_ostree("CULTUREOS_OSTREE_STATUS_CMD is empty")
     try:
         proc = subprocess.run(  # nosec B603 - no shell, argv from operator config
-            cmd, capture_output=True, text=True, check=False, timeout=30
+            cmd, capture_output=True, check=False, timeout=30
         )
     except (OSError, subprocess.SubprocessError) as err:
-        raise not_ostree from err
+        raise _not_ostree(f"{cmd[0]}: {err}") from err
     if proc.returncode != 0:
-        not_ostree.message += f" ({' '.join(cmd)} exited {proc.returncode})"
-        raise not_ostree
-    return proc.stdout
+        raise _not_ostree(f"{' '.join(cmd)} exited {proc.returncode}")
+    try:
+        return proc.stdout.decode("utf-8")
+    except UnicodeDecodeError as err:
+        raise _not_ostree(f"output is not UTF-8: {err}") from err
 
 
 def _parse_json(text: str) -> list[dict[str, Any]]:
@@ -70,7 +83,8 @@ def _parse_json(text: str) -> list[dict[str, Any]]:
             "commit": d.get("checksum") or d.get("commit"),
             "version": d.get("version"),
             "booted": bool(d.get("booted")),
-            "pending": bool(d.get("pending")),
+            "pending": bool(d.get("pending") or d.get("staged")),
+            "staged": bool(d.get("staged")),
             "rollback": bool(d.get("rollback")),
         }
         for d in raw
@@ -89,7 +103,9 @@ def _parse_text(text: str) -> list[dict[str, Any]]:
                     "commit": m["commit"],
                     "version": None,
                     "booted": m["marker"] == "*",
-                    "pending": "(pending)" in line,
+                    # "(staged)" = queued by `ostree admin deploy --stage` for next boot
+                    "pending": "(pending)" in line or "(staged)" in line,
+                    "staged": "(staged)" in line,
                     "rollback": "(rollback)" in line,
                 }
             )
@@ -135,13 +151,23 @@ def read_state() -> dict[str, Any]:
 def build_status() -> dict[str, Any]:
     deployments = read_deployments()
     booted = next((d for d in deployments if d["booted"]), None)
+    if booted is None:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            "not booted into an OSTree deployment: no deployment is marked booted",
+            "run on the booted OSTree host, not a chroot or container",
+        )
     state = read_state()
     outcome = state["outcome"]
+    version = booted.get("version")
+    if version is None and state.get("deployed_commit") == booted["commit"]:
+        # The state file describes the commit that is actually running.
+        version = state.get("deployed_version")
     return {
         "healthy": outcome not in DEGRADED_OUTCOMES,
         "booted": booted,
         "deployments": deployments,
-        "version": (booted or {}).get("version") or state.get("deployed_version"),
+        "version": version,
         "outcome": outcome,
         "last_update": {
             k: state.get(k) for k in ("timestamp", "deployed_commit", "previous_commit", "reason")
@@ -150,7 +176,7 @@ def build_status() -> dict[str, Any]:
 
 
 def _render_text(s: dict[str, Any]) -> str:
-    b = s["booted"] or {}
+    b = s["booted"]
     lu = s["last_update"]
     lines = [
         f"status: {'healthy' if s['healthy'] else 'degraded'}",
@@ -184,5 +210,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     st = noun_sub.add_parser(
         "status", help="Report OSTree deployment, version and last update outcome."
     )
-    st.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    # SUPPRESS: an unset verb-level --json must not overwrite `os --json status`.
+    st.add_argument(
+        "--json", action="store_true", default=argparse.SUPPRESS, help="Emit structured JSON."
+    )
     st.set_defaults(func=cmd_os_status)

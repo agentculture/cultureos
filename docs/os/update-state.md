@@ -31,7 +31,12 @@ been attempted and is reported as outcome `none`.
 
 `cultureos os status` exits 0 for `applied` and `none`, 1 for `rolled-back` and
 `failed`, and 2 when the file exists but is not valid JSON or its `outcome` is
-missing or not one of the four values.
+missing or not one of the four values. It also exits 2 when the OSTree status
+cannot be read or no deployment is marked booted.
+
+`deployed_version` is shown as the running version only when `deployed_commit`
+is the booted commit and the deployment has no `Version` metadata of its own.
+After a rollback, the targeted version is not the running one.
 
 ## Example
 

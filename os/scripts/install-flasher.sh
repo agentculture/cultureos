@@ -35,16 +35,25 @@ if [ -z "$bin" ]; then
   exit 1
 fi
 
-mkdir -p "$INSTALL_DIR"
-install -m 0755 "$bin" "$INSTALL_DIR/arduino-flasher-cli"
-
-out="$("$INSTALL_DIR/arduino-flasher-cli" version)"
-echo "$out"
-found="$(printf '%s\n' "$out" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
-lowest="$(printf '%s\n%s\n' "$MIN_VERSION" "$found" | sort -V | head -n1)"
-if [ -z "$found" ] || [ "$lowest" != "$MIN_VERSION" ]; then
-  echo "arduino-flasher-cli version '$found' is older than $MIN_VERSION" >&2
-  rm -f "$INSTALL_DIR/arduino-flasher-cli"
+# Verify the extracted binary BEFORE installing, so a failed check never
+# replaces (or removes) a previously working install.
+chmod 0755 "$bin"
+if ! out="$("$bin" version 2>&1)"; then
+  echo "arduino-flasher-cli 'version' failed (wrong architecture?): $out" >&2
   exit 1
 fi
+echo "$out"
+found="$(printf '%s\n' "$out" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
+if [ -z "$found" ]; then
+  echo "cannot read a version from arduino-flasher-cli output: $out" >&2
+  exit 1
+fi
+lowest="$(printf '%s\n%s\n' "$MIN_VERSION" "$found" | sort -V | head -n1)"
+if [ "$lowest" != "$MIN_VERSION" ]; then
+  echo "arduino-flasher-cli version '$found' is older than $MIN_VERSION" >&2
+  exit 1
+fi
+
+mkdir -p "$INSTALL_DIR"
+install -m 0755 "$bin" "$INSTALL_DIR/arduino-flasher-cli"
 echo "OK: arduino-flasher-cli $found installed in $INSTALL_DIR"
