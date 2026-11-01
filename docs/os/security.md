@@ -89,7 +89,9 @@ another key, and a missing key file all make the pull fail. If the key file
 is missing at build time the recipe warns and still installs the remote, so
 the device fails closed (refuses every pull) rather than accepting unsigned
 updates. `sign-verify-summary` is left at its default (off): commits are
-verified, the summary is not. Signing the summary as well is t17's choice.
+verified, the summary is not: the release host signs commits only, because the
+only way to sign a summary puts the secret key on the command line
+(`docs/os/release-repo.md`). Replay protection is the pull's `--timestamp-check`.
 
 GPG is off because meta-updater builds ostree without gpgme.
 

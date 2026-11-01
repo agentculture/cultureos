@@ -8,6 +8,8 @@ Description=Culture mesh node (culture server)
 Documentation=https://culture.dev
 Wants=network-online.target
 After=network-online.target tailscaled.service
+# Exit 75 = no tailnet address yet; keep retrying until enrollment, never give up.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -22,7 +24,7 @@ Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/var/lib/culture/node.env
 ExecStart=/usr/libexec/culture-node/culture-node-start
 Restart=on-failure
-RestartSec=5
+RestartSec=30
 # culture's daemon exit contract: 78 is a permanent config error; park the
 # unit instead of crash-looping.
 RestartPreventExitStatus=78

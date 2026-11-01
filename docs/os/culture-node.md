@@ -103,7 +103,7 @@ and rebuild `culture-node`.
 | `Environment=` | `HOME=/var/lib/culture` | culture keeps everything under `$HOME/.culture`, so all state lands in `/var/lib/culture/.culture` without patching culture |
 | `EnvironmentFile=` | `-/var/lib/culture/node.env` | optional operator settings |
 | `ExecStart=` | `/usr/libexec/culture-node/culture-node-start` | runs `culture server start --foreground` |
-| `Restart=` | `on-failure`, `RestartSec=5` | |
+| `Restart=` | `on-failure`, `RestartSec=30`, `StartLimitIntervalSec=0` | Retries forever: before tailnet enrollment the start script exits 75 (EX_TEMPFAIL) and systemd keeps trying until an address appears |
 | `RestartPreventExitStatus=` | `78` | culture's exit contract: 78 is a permanent config error, so the unit parks instead of crash-looping (as in culture's own generated units) |
 | hardening | `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp` | the state directory stays writable |
 
@@ -124,7 +124,7 @@ All optional, in `/var/lib/culture/node.env` (see
 | Variable | Default | Passed as |
 |-----|-----|-----|
 | `CULTURE_NODE_NAME` | `uname -n` | `--name` (validated: `A-Z a-z 0-9 . _ -`, not starting with `.`; otherwise exit 78) |
-| `CULTURE_NODE_HOST` | the board's tailnet IPv4 (`tailscale ip -4`), else `127.0.0.1` | `--host`; never all interfaces (risk r13). The webhook port always binds `127.0.0.1` (agentirc) |
+| `CULTURE_NODE_HOST` | the board's tailnet IPv4 (`tailscale ip -4`); if none appears within `CULTURE_NODE_TAILNET_WAIT` (60 s) the script exits 75 and the unit retries, it never falls back to loopback. Set `127.0.0.1` explicitly for a local-only node | `--host`; never all interfaces (risk r13). The webhook port always binds `127.0.0.1` (agentirc) |
 | `CULTURE_NODE_PORT` | `6667` | `--port` |
 | `CULTURE_NODE_WEBHOOK_PORT` | `7680` | `--webhook-port` |
 | `CULTURE_NODE_MESH_CONFIG` | `/var/lib/culture/.culture/mesh.yaml` | `--mesh-config`, only if the file exists |
@@ -255,4 +255,4 @@ Procedure, once an image with `culture-node` boots:
    manual action, and check that `/var/lib/culture/.culture/data` still
    holds the history written before the reboot.
 6. Optional: `systemctl kill -s KILL culture-node`; the unit is `active`
-   again within about 5 s (`Restart=on-failure`).
+   again within about 30 s (`Restart=on-failure`).
