@@ -52,6 +52,9 @@ architecture, worktree layout, memory discipline, `ask-colleague` usage).
 - The vendored skills under `.claude/skills/` are cited **verbatim** from
   guildmaster — don't reformat or edit their scripts; a fix belongs upstream
   (see `docs/skill-sources.md` for the re-sync procedure).
+- CI also fails on any tracked source file over 1000 lines
+  (`tests/test_file_length_limit.py`) and on any OPEN/CONFIRMED SonarCloud issue on
+  a PR (`scripts/sonar-pr-issues.py`; ACCEPTED issues pass).
 - Every PR bumps the version (`version-bump` skill) — CI's `version-check` job
   blocks merge otherwise.
 - Tests: `uv run pytest -n auto` (single test:

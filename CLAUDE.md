@@ -149,6 +149,11 @@ config goes in `.claude/skills.local.yaml` (git-ignored; copy from the
 
 ## Conventions
 
+- **CI gates beyond lint/tests:** no tracked source file over 1000 physical lines
+  (`tests/test_file_length_limit.py`, cited from colleague; the grandfather list is
+  empty and shrink-only), and no OPEN/CONFIRMED SonarCloud issue on a PR
+  (`scripts/sonar-pr-issues.py`, cited from culture-rules; ACCEPTED or
+  FALSE_POSITIVE issues pass). Split files and fix smells rather than raising limits.
 - **Every PR bumps the version** — even docs/config/CI. Use the
   `version-bump` skill (updates `pyproject.toml` + `CHANGELOG.md`); CI's
   `version-check` job blocks merge otherwise.
