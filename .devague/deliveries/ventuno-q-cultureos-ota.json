@@ -2,7 +2,7 @@
   "plan_slug": "ventuno-q-cultureos-ota",
   "schema_version": 2,
   "created": "2026-11-01T07:39:19Z",
-  "updated": "2026-11-01T14:58:01Z",
+  "updated": "2026-11-01T15:00:06Z",
   "deviations": [
     {
       "id": "d1",
@@ -124,7 +124,7 @@
       "reason": "libvirt-libvirtd ships pre-generated private keys in /etc/pki/libvirt/private, identical on every board built from the image (audit-image.sh finding); CultureOS runs no VMs; removes ~30 packages",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 9
     }
