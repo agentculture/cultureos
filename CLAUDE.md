@@ -72,7 +72,8 @@ dependency only.
 
 Verbs: `whoami` (identity from `culture.yaml`), `learn` (self-teaching
 prompt), `explain <path>`, `overview`, `doctor` (agent-identity invariants),
-`cli overview`.
+`cli overview`, `os status` (OSTree deployment + last update outcome; exit 0
+healthy, 1 degraded, 2 not an OSTree system).
 
 Some CLI strings still describe the package as "a clonable template"
 (`cli/__init__.py` description, `learn.py`, `explain/catalog.py`,
@@ -197,3 +198,22 @@ public pool.
 - `/recall` before non-trivial work in an area — prior decisions and gotchas.
 - `/remember` non-obvious decisions, constraints, and fixes with their *why*,
   as they happen. Don't store what the repo already records.
+
+## OS workstream
+
+Alongside the CLI, this repo is growing an OS workstream (issues
+[#3](https://github.com/agentculture/cultureos/issues/3) and
+[#4](https://github.com/agentculture/cultureos/issues/4)): CultureOS as a
+pinned Yocto image (`meta-cultureos`, kas lock file) for the Arduino VENTUNO Q,
+installed on NVMe with the factory Ubuntu on eMMC kept as fallback/rescue,
+reachable over Tailscale, with signed OSTree OTA (health-gated promotion,
+watchdog rollback). So far on disk: [`docs/os/README.md`](docs/os/README.md) and the docs it
+lists, `os/scripts/install-flasher.sh` + `docs/os/recovery.md` (EDL recovery
+prep), `os/scripts/capture-baseline.sh` + `docs/os/board-baseline.md`, and the
+`cultureos os status [--json]` verb (`docs/os/update-state.md`). The spec is
+`docs/specs/2026-11-01-ventuno-q-cultureos-ota.md`, the plan
+`docs/plans/2026-11-01-ventuno-q-cultureos-ota.md`. The `meta-cultureos`
+layer skeleton, the pinned kas manifest `os/kas/cultureos.yml` (+ lock) and
+the shared, flock-serialized build wrapper `os/scripts/bb.sh` are on disk
+(`docs/os/building.md`); every Yocto build goes through `bb.sh`. CultureOS
+packages and the release pipeline are (planned).

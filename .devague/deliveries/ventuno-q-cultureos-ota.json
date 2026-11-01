@@ -1,0 +1,87 @@
+{
+  "plan_slug": "ventuno-q-cultureos-ota",
+  "schema_version": 2,
+  "created": "2026-11-01T07:39:19Z",
+  "updated": "2026-11-01T13:10:55Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t5 additionally provides a shared DL_DIR/SSTATE_DIR outside the repo and a flock-serialized build wrapper (os/scripts/bb.sh) so wave-2 recipe agents queue their bitbake runs through one build instead of N parallel build dirs",
+      "task_ref": "t5",
+      "reason": "N parallel bitbake builds would each need a full build dir and thrash the Spark; user approved at gate 2 ('wrapper yes')",
+      "affects": [
+        "t6",
+        "t8",
+        "t9",
+        "t10",
+        "t11",
+        "t12",
+        "t13",
+        "t15",
+        "t17"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t2 acceptance criterion says 'verifies --version' but arduino-flasher-cli has no --version flag for its own version (--version selects an image to flash); the script uses the 'version' subcommand instead",
+      "task_ref": "t2",
+      "reason": "criterion was worded from the flash doc's --version image selector; the tool's own version check is the 'version' subcommand",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t11 local access drops adbd: the no-network shell is a USB CDC-ACM serial console plus the UART console on ttyMSM0, both requiring the provisioned non-root user's login password; no unauthenticated root path",
+      "task_ref": "t11",
+      "reason": "meta-oe adbd has authorization disabled, so adbd = root shell for anyone at the USB port; conflicts with t12 hardening (risk r11). Operator chose 'Login consoles'.",
+      "affects": [
+        "t10",
+        "t12",
+        "t19"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "t12 adds ostree_%.bbappend (PACKAGECONFIG ed25519-libsodium) in its own recipe dir, a file its brief does not name",
+      "task_ref": "t12",
+      "reason": "target and native ostree have no signature engine (r10); sign-verify=true cannot work without it; verified refusal/acceptance with the image's own ostree",
+      "affects": [
+        "t17",
+        "t16",
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "t8 arduino-router talks to the MCU via the stable udev symlink /dev/ttySTM0 (udev rule: tty with idVendor 1209 idProduct ca01, as the factory 99-stm-tty.rules) instead of the raw /dev/ttyACM0 named in t8's criterion and c11/c27",
+      "task_ref": "t8",
+      "reason": "factory board (read-only ssh): 10-monza generator drop-in runs --serial-port /dev/ttySTM0; 99-stm-tty.rules symlinks the STM32 USB-ACM device 1209:ca01; ttyACM0 is only correct when the MCU is the first ACM device",
+      "affects": [
+        "t11",
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
