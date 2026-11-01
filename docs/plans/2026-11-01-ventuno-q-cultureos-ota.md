@@ -1,0 +1,226 @@
+# Build Plan — ventuno-q cultureos ota
+
+slug: `ventuno-q-cultureos-ota` · status: `exported` · from frame: `ventuno-q-cultureos-ota`
+
+> The Arduino VENTUNO Q runs CultureOS — our own pinned, reproducible Yocto image (meta-cultureos) built from this repo and installed on NVMe — reachable over Tailscale; OSTree-based OTA follows once the OS lives on NVMe, so the board ends up needing nothing but power to stay current.
+
+## Tasks
+
+### t1 — M0 reference build: unmodified upstream ventuno-q image built on the aarch64 DGX Spark
+
+- instruction: Build in a scratch build dir outside the repo (e.g. /home/spark/yocto/cultureos-ref); only the script and the doc land in the repo. Cap `BB_NUMBER_THREADS`/`PARALLEL_MAKE` so the Spark's other workloads keep running. If the aarch64 host build fails, stop and report the failing recipe - do not switch hosts silently.
+- covers: c23, h16
+- acceptance:
+  - os/scripts/build-reference.sh runs kas-container on meta-qcom-arduino ci/ventuno-q.yml (+ ci/qcom-distro.yml) and exits 0 on the Spark
+  - deploy dir contains a \*.qcomflash directory with rawprogram\*.xml and patch\*.xml
+  - docs/os/reference-build.md records uname -m = aarch64, wall time, peak disk, kas/layer commit SHAs and `BB_NUMBER_THREADS` used
+
+### t2 — Recovery prep: arduino-flasher-cli on the Spark + 05c6 udev rule + documented EDL procedure (no flashing)
+
+- instruction: The udev rule needs sudo: print the exact one-liner for the operator instead of running it. Verify 'arduino-flasher-cli list ventunoq' works if the tool supports it offline-safe.
+- covers: c10, h7
+- acceptance:
+  - os/scripts/install-flasher.sh installs arduino-flasher-cli >= 0.5.4 (linux-arm64) into ~/.local/bin and verifies --version
+  - docs/os/recovery.md documents JCTL pin1-GND to pin2 `FORCED_USB_BOOT_N`, barrel power then USB-C, expected lsusb 05c6:9008, the udev rule line, dialout membership, and that a reflash erases the eMMC
+  - no command in this task writes to the board
+
+### t3 — Record the factory baseline of the board (before state) in docs/os/board-baseline.md
+
+- instruction: Read-only over ssh arduino. No secrets (no PSKs, no tailnet keys).
+- covers: c20, h13
+- acceptance:
+  - doc lists os-release, kernel, partition table (A/B firmware, single-slot efi/persist/system), UEFI Boot0000/BootOrder, `qcom_wdt`, running Arduino services, network paths (end0, wlp3s0, tailscale0)
+  - every value is reproducible by a read-only command shown next to it (ssh arduino ...)
+
+### t4 — Docs + harness prompts describe the OS workstream
+
+- instruction: Keep CLAUDE.md grounded in what exists on disk; mark not-yet-built parts (planned).
+- covers: c21, h14
+- acceptance:
+  - docs/os/README.md explains the OS workstream, links issues #3 and #4, the spec docs/specs/2026-11-01-ventuno-q-cultureos-ota.md and this plan
+  - CLAUDE.md, AGENTS.override.md, AGENTS.colleague.md and QWEN.md each gain the same short 'OS workstream' section; harness-smoke --stage config passes; markdownlint clean
+
+### t5 — meta-cultureos layer skeleton + pinned kas manifest stacking ventuno-q + qcom-distro-sota
+
+- instruction: Read uptane/meta-updater sota.conf.inc first (parked v3): note which client/bootloader settings it imposes and override `SOTA_CLIENT` so no Uptane client ships. Keep upstream `EFI_PROVIDER`=systemd-boot (decision c39).
+- depends on: t1
+- covers: c1, c8, h6, c6, h4
+- acceptance:
+  - os/meta-cultureos/conf/layer.conf, conf/distro/cultureos.conf (requires qcom-distro-sota) and recipes-core/images/cultureos-image.bb exist
+  - os/kas/cultureos.yml pins every repo (meta-qcom, meta-qcom-arduino, meta-qcom-distro, meta-updater, poky/oe-core) by commit SHA; a lock file is committed
+  - building cultureos-image produces an OSTree repo tarball and an ota-ext4 image in the deploy dir
+  - aktualizr is not in the image (plain OSTree pull per decision c35); grep shows no rollout-cli reference anywhere under os/
+
+### t6 — Offline-reproducible build: local `DL_DIR`/sstate mirror, second build with `BB_NO_NETWORK`=1
+
+- instruction: The mirror lives outside the repo; only config + docs are committed.
+- depends on: t5
+- covers: h1
+- acceptance:
+  - os/kas/mirror.yml (or equivalent include) points PREMIRRORS/`SSTATE_MIRRORS` at a local mirror on the Spark
+  - a clean second build with `BB_NO_NETWORK`=1 succeeds, including the QCS8300 boot binaries normally fetched from softwarecenter.qualcomm.com
+  - docs/os/reproducibility.md records how to refresh the mirror and the disk it uses
+
+### t7 — Release bundle carries Qualcomm LICENSE.qcom-2, firmware binary-only
+
+- instruction: Do not publish anything; produce the bundle locally only.
+- depends on: t5
+- covers: c30, h25
+- acceptance:
+  - os/scripts/bundle-release.sh produces a release tarball whose manifest lists LICENSE.qcom-2 and contains no firmware source
+  - a test (tests/os/`test_bundle_release.py`) runs the script on a fixture deploy dir and fails if the license is missing
+
+### t8 — Recipe: arduino-router (Go, from github.com/arduino/arduino-router) + systemd unit owning /dev/ttyACM0
+
+- instruction: Own only the files named here; do NOT edit cultureos-image.bb (the integration task wires packages in). Verify with `bitbake <recipe>` plus a throwaway `IMAGE_INSTALL`:append in local.conf. Compare with the factory unit: ssh arduino 'systemctl cat arduino-router'.
+- depends on: t5
+- covers: c27, c11, h8
+- acceptance:
+  - os/meta-cultureos/recipes-arduino/arduino-router/ builds a static aarch64 binary pinned to a tagged release matching the factory 0.11.0 or newer
+  - its unit starts at boot, exposes /var/run/arduino-router.sock, and no other unit in the layer opens /dev/ttyACM0
+  - no recipe in the layer installs or flashes STM32 firmware
+
+### t9 — Recipe: Tailscale with tailscaled enabled and state under /var/lib/tailscale
+
+- instruction: Own only the files named here; do NOT edit cultureos-image.bb (the integration task wires packages in). Verify with `bitbake <recipe>` plus a throwaway `IMAGE_INSTALL`:append in local.conf. Enrollment stays manual: operator runs 'tailscale up' once (decision q2).
+- depends on: t5
+- covers: c12
+- acceptance:
+  - os/meta-cultureos/recipes-connectivity/tailscale/ (or pinned meta-tailscale layer added to kas) ships tailscale + tailscaled; tailscaled.service enabled
+  - state dir is /var/lib/tailscale (survives OSTree deploys); no auth key in the recipe or image
+
+### t10 — First-boot provisioning: Wi-Fi + SSH authorized key from an operator-supplied input, stored only under /var
+
+- instruction: Own only the files named here; do NOT edit cultureos-image.bb (the integration task wires packages in). Verify with `bitbake <recipe>` plus a throwaway `IMAGE_INSTALL`:append in local.conf. Never commit a real PSK, key or the operator's public key; the public key arrives via the provisioning file too.
+- depends on: t5
+- covers: c26, h11
+- acceptance:
+  - os/meta-cultureos/recipes-core/cultureos-provision/ installs a oneshot unit that reads a provisioning file (e.g. cultureos-provision.toml on the ESP or a USB stick) on first boot, writes the NetworkManager/iwd profile + /var/home/arduino/.ssh/`authorized_keys`, then shreds the input
+  - python3 scripts/scan-secrets.py passes; a test asserts the image rootfs contains no psk= or tskey- strings
+  - docs/os/provisioning.md shows the file format with placeholder values only
+
+### t11 — Local no-network shell: USB gadget (adbd or CDC-ACM getty) + serial getty on ttyMSM0
+
+- instruction: Own only the files named here; do NOT edit cultureos-image.bb (the integration task wires packages in). Verify with `bitbake <recipe>` plus a throwaway `IMAGE_INSTALL`:append in local.conf. The factory OS uses adbd + /dev/ttyGS0 (arduino-router-serial); reuse the same gadget approach where licensing allows.
+- depends on: t5
+- covers: c28, h23
+- acceptance:
+  - os/meta-cultureos/recipes-core/cultureos-local-access/ enables a USB device-mode gadget and serial-getty@ttyMSM0
+  - documented test: with Ethernet unplugged and Wi-Fi off, the Spark gets a login via adb shell or the gadget serial port
+
+### t12 — Device hardening: key-only sshd and OSTree remote with signature verification
+
+- instruction: Own only the files named here; do NOT edit cultureos-image.bb (the integration task wires packages in). Verify with `bitbake <recipe>` plus a throwaway `IMAGE_INSTALL`:append in local.conf. Use a throwaway test key in tests; the real release key comes from the repo task.
+- depends on: t5
+- covers: h24
+- acceptance:
+  - os/meta-cultureos/recipes-core/cultureos-security/ ships `sshd_config` drop-in: PasswordAuthentication no, PermitRootLogin no
+  - the OSTree remote config sets sign-verify=true with the release public key; a test with a local throwaway repo shows an unsigned commit is refused with a logged reason
+
+### t13 — Recipe: Culture mesh node (culture + cultureos CLI) under systemd, identity under /var
+
+- instruction: Own only the files named here; do NOT edit cultureos-image.bb (the integration task wires packages in). Verify with `bitbake <recipe>` plus a throwaway `IMAGE_INSTALL`:append in local.conf. First audit culture's dependency tree for compiled deps (lapse l3) and pick a route: pypi/setuptools3 recipes vs a build-time venv; record the choice in the recipe header.
+- depends on: t5
+- covers: c7, h5
+- acceptance:
+  - os/meta-cultureos/recipes-culture/ builds culture and cultureos (pinned PyPI versions) for the target without network at runtime
+  - culture node unit: After=network-online.target, Restart=on-failure, mesh identity/state in /var/lib/culture
+  - on an image boot, the node appears on the mesh and survives a reboot
+
+### t14 — cultureos CLI: 'os status' verb reporting OSTree deployment, version and last update outcome
+
+- instruction: Pure Python in this repo, runnable on the Spark today. Read state from 'ostree admin status --json'-like output and a state file written by the update agent (/var/lib/cultureos/update-state.json); define that file's schema in docs/os/update-state.md.
+- covers: c32, h26
+- acceptance:
+  - cultureos/cli/`_commands`/`os_status.py` adds 'cultureos os status \[--json\]'; exit 0 healthy, non-zero degraded; outcome is one of applied / rolled-back / failed / none
+  - tests/`test_os_status.py` covers each outcome with a faked ostree/journal source (no real ostree needed); explain catalog entry added; teken cli doctor --strict passes
+
+### t15 — Rollback mechanism: one-shot trial boot + early `qcom_wdt` + panic reboot + health-gated promotion
+
+- instruction: Own only the files named here; do NOT edit cultureos-image.bb (the integration task wires packages in). Plan B if LoaderEntryOneShot misbehaves on the QCS UEFI: GRUB EFI + boot counter + greenboot (decision q5). Do not implement plan B unless the hardware test fails.
+- depends on: t5
+- covers: c39
+- acceptance:
+  - os/meta-cultureos/recipes-core/cultureos-trialboot/ ships: a deploy helper that stages a new OSTree deployment non-default and runs 'bootctl set-oneshot' on its BLS entry; a health-check unit ordered before boot-complete.target; a promote unit that makes the deployment default only after the health check passes
+  - systemd RuntimeWatchdogSec set (<= `qcom_wdt` 30 s) and kernel panic=N reboot on the kernel cmdline
+  - QEMU or unit-level test proves: helper never changes the default before a passing health check
+
+### t16 — Board update agent: systemd timer pull + idempotent push entrypoint, writing update-state.json
+
+- instruction: Own only the files named here; do NOT edit cultureos-image.bb (the integration task wires packages in). Pull only from the Tailscale-served remote; never from the public internet.
+- depends on: t5, t14, t15
+- covers: c38, h27
+- acceptance:
+  - os/meta-cultureos/recipes-core/cultureos-update-agent/ ships cultureos-update.timer (pull) and a 'cultureos-update now' command callable over ssh (push); repeated invocations with no new commit are no-ops
+  - it hands new commits to the trial-boot helper and writes /var/lib/cultureos/update-state.json per docs/os/update-state.md
+  - test: with the push action disabled the timer path alone stages the new commit within one interval (simulated clock)
+
+### t17 — OSTree release repo + signing + publish script on the Spark, served over Tailscale
+
+- instruction: Key generation is an operator step - print the command, do not generate keys into the repo.
+- depends on: t5
+- covers: c29
+- acceptance:
+  - os/scripts/publish-ostree.sh imports a build's OSTree commit into a repo on the Spark, signs it (ed25519), updates the summary, and leaves the ref unchanged if any step fails
+  - the signing private key lives outside the repo (path from config); only the public key is committed under os/keys/
+  - a systemd user unit serves the repo over HTTP bound to the Spark's Tailscale address only; docs/os/release-repo.md documents it
+
+### t18 — culture-rules release rule/workflow: build -> bundle -> sign+publish -> trigger board
+
+- instruction: Do not import with --apply into the live culture-rules store; the operator does that after review.
+- depends on: t16, t17
+- acceptance:
+  - os/release/culture-rules/ holds exported rule + workflow JSON (culture-rules export format) with code-run steps placed on machine 'spark'
+  - a failed build/publish step stops the run before the board trigger; the board trigger calls 'cultureos-update now' over Tailscale and records the resulting deployment + outcome in the run
+  - dry-run documented: culture-rules import without --apply validates the files
+
+### t19 — Image integration: wire all CultureOS packages into cultureos-image and build it
+
+- instruction: This is the only task that edits cultureos-image.bb.
+- depends on: t8, t9, t10, t11, t12, t13, t15, t16
+- covers: c14, h10
+- acceptance:
+  - cultureos-image.bb installs arduino-router, tailscale, provisioning, local-access, security, culture node, cultureos CLI, trialboot and update-agent; the image builds
+  - an image audit (os/scripts/audit-image.sh) shows no mutable app data outside /var and passes the secrets scan
+
+### t20 — NVMe install + UEFI boot order NVMe-then-eMMC; eMMC untouched
+
+- instruction: HARDWARE: needs the NVMe installed. Run from the factory Ubuntu over ssh arduino with the operator's go-ahead; recovery prep (t2) must be done first.
+- depends on: t2, t19
+- covers: c2, h19
+- acceptance:
+  - os/scripts/install-nvme.sh refuses any target that is not /dev/nvme\*; it writes the image to NVMe and adds a UEFI entry ahead of Boot0000 Ubuntu via efibootmgr
+  - after install, eMMC partition table and the Ubuntu entry are byte/entry-identical to docs/os/board-baseline.md
+  - the board boots CultureOS from NVMe
+
+### t21 — eMMC Ubuntu rescue agent: repair NVMe OSTree default on fall-through, capped retries, alert over Tailscale
+
+- instruction: HARDWARE. This modifies files in the factory Ubuntu rootfs (allowed: user said eMMC is flexible) but never partitions or firmware - see plan risk on o13 wording.
+- depends on: t20
+- covers: c37
+- acceptance:
+  - os/rescue/ holds a script + systemd unit installed into the factory Ubuntu; it only runs when Ubuntu was booted with the NVMe entry present in BootOrder
+  - it sets the previous NVMe deployment as default and reboots to NVMe at most N times, then stays in Ubuntu and alerts over Tailscale; never writes eMMC firmware partitions
+
+### t22 — End-to-end hardware validation: power cycles, OTA, rollback (panic/hang/health), /var survival, NVMe-missing fall-through
+
+- instruction: HARDWARE. Script what can be scripted under os/tests/hw/; file evidence with 'devague evidence' per obligation.
+- depends on: t18, t21
+- covers: c24, h17, c25, h18, h28, c5, h3, h20, c22, h15, c19, h12, h9, h22
+- acceptance:
+  - 3 consecutive hands-off power cycles: ssh arduino over Tailscale within 120 s each, same tailnet IP
+  - one OTA via the culture-rules release applies; trial deployments that panic, hang, and fail health each return to the previous deployment unattended; a /var marker survives all of them; cultureos os status reports each outcome
+  - with the NVMe removed the board boots eMMC Ubuntu and is reachable; a sketch Bridge call reaches arduino-router; the culture node is visible on the mesh
+  - results filed as devague evidence records against the obligations o1-o19
+
+## Risks
+
+- [unknown_nonblocking] aarch64 build host unproven for ventuno-q (upstream builds it only on amd64, build-yocto.yml:118); if t1 fails on a host-tool or prebuilt-binary issue, an x86 builder (or emulation) is needed - decision for the operator then (task t1)
+- [follow_up] Yocto build competes with the Spark's other workloads (docker services, inference) for CPU/RAM/disk; cap `BB_NUMBER_THREADS`/`PARALLEL_MAKE` and watch free disk (`DL_DIR` + sstate + tmp can reach 150-300 GB) (task t1)
+- [unknown_nonblocking] meta-updater sota.conf.inc unread (frame park v3): it may force aktualizr, credentials or a bootloader integration that fights systemd-boot one-shot (task t5)
+- [unknown_nonblocking] culture's dependency tree may include compiled/native wheels that are hard to package in Yocto (lapse l3); route may need a build-time venv (task t13)
+- [unknown_nonblocking] systemd-boot LoaderEntryOneShot unverified on the QCS8300 UEFI until a CultureOS image boots on hardware; option: boot the image from a USB stick before the NVMe arrives to probe it early without touching eMMC (task t15)
+- [unknown_nonblocking] A hang in early kernel boot before the watchdog is armed is caught by neither one-shot nor GRUB counting; arm `qcom_wdt` as early as possible and test it (task t15)
+- [unknown_nonblocking] Obligation o13 says installing/updating CultureOS 'never modifies eMMC partitions'; the rescue agent (t21) adds files to the factory Ubuntu rootfs on eMMC - partitions/firmware untouched, but o13 wording should be confirmed against the operator's 'eMMC is flexible' (task t21)
+- [follow_up] NVMe drive not yet installed: t20-t22 cannot start until it arrives; everything before them is hardware-free (task t20)
+- [follow_up] Each PR must bump the version (version-check CI); workforce merges should land as one PR per wave or one per milestone with a single bump
