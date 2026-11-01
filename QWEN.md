@@ -110,12 +110,13 @@ Alongside the CLI, this repo is growing an OS workstream (issues
 pinned Yocto image (`meta-cultureos`, kas lock file) for the Arduino VENTUNO Q,
 installed on NVMe with the factory Ubuntu on eMMC kept as fallback/rescue,
 reachable over Tailscale, with signed OSTree OTA (health-gated promotion,
-watchdog rollback). Today only the docs exist: see
-[`docs/os/README.md`](docs/os/README.md), the spec
-`docs/specs/2026-11-01-ventuno-q-cultureos-ota.md` and the plan
-`docs/plans/2026-11-01-ventuno-q-cultureos-ota.md`. The `os/` tree, the
-`cultureos os` verb and the build/release pipeline are (planned) and do not
-exist on disk yet.
+watchdog rollback). So far on disk: [`docs/os/README.md`](docs/os/README.md) and the docs it
+lists, `os/scripts/install-flasher.sh` + `docs/os/recovery.md` (EDL recovery
+prep), `os/scripts/capture-baseline.sh` + `docs/os/board-baseline.md`, and the
+`cultureos os status [--json]` verb (`docs/os/update-state.md`). The spec is
+`docs/specs/2026-11-01-ventuno-q-cultureos-ota.md`, the plan
+`docs/plans/2026-11-01-ventuno-q-cultureos-ota.md`. The `meta-cultureos`
+layer, kas manifest and the build/release pipeline are (planned).
 
 ## Layout
 

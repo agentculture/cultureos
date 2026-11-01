@@ -42,15 +42,15 @@ not boot. Recovery to the official image is an EDL reflash with
 
 ## Planned documents
 
-These are owned by other plan tasks and are not on disk yet. Paths are
-intended, not final.
+Docs and scripts of the OS workstream:
 
 | Document | Purpose | Status |
 |----------|---------|--------|
-| `docs/os/board-baseline.md` | Measured state of the factory board | (planned) |
-| `docs/os/recovery.md` | Restore-to-official-image path (EDL reflash) | (planned) |
+| `docs/os/board-baseline.md` | Measured state of the factory board | present |
+| `docs/os/recovery.md` | Restore-to-official-image path (EDL reflash) | present |
 | `docs/os/reference-build.md` | Building the upstream reference image on the Spark | (planned) |
-| `docs/os/update-state.md` | OTA update state and `cultureos os status` | (planned) |
+| `docs/os/update-state.md` | OTA update state and `cultureos os status` | present |
 
-Related code is also (planned): `os/scripts/install-flasher.sh`,
-`os/scripts/build-reference.sh` and the `cultureos os status` verb.
+Related code: `os/scripts/install-flasher.sh`, `os/scripts/capture-baseline.sh`
+and the `cultureos os status` verb (present); `os/scripts/build-reference.sh`
+(in progress).
