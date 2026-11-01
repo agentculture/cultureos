@@ -2,7 +2,7 @@
   "plan_slug": "ventuno-q-cultureos-ota",
   "schema_version": 2,
   "created": "2026-11-01T07:39:19Z",
-  "updated": "2026-11-01T08:39:20Z",
+  "updated": "2026-11-01T12:46:34Z",
   "deviations": [
     {
       "id": "d1",
@@ -35,6 +35,36 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t11 local access drops adbd: the no-network shell is a USB CDC-ACM serial console plus the UART console on ttyMSM0, both requiring the provisioned non-root user's login password; no unauthenticated root path",
+      "task_ref": "t11",
+      "reason": "meta-oe adbd has authorization disabled, so adbd = root shell for anyone at the USB port; conflicts with t12 hardening (risk r11). Operator chose 'Login consoles'.",
+      "affects": [
+        "t10",
+        "t12",
+        "t19"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "t12 adds ostree_%.bbappend (PACKAGECONFIG ed25519-libsodium) in its own recipe dir, a file its brief does not name",
+      "task_ref": "t12",
+      "reason": "target and native ostree have no signature engine (r10); sign-verify=true cannot work without it; verified refusal/acceptance with the image's own ostree",
+      "affects": [
+        "t17",
+        "t16",
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],

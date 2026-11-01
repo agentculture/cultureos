@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-11-01T06:19:47Z",
-  "updated": "2026-11-01T12:02:02Z",
+  "updated": "2026-11-01T12:34:32Z",
   "claims": [
     {
       "id": "c1",
@@ -1093,6 +1093,17 @@
       "refs": [
         "t1",
         "docs/os/reference-build.md"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l8",
+      "code": "assumption-for-measurement",
+      "what": "t11 enables serial-getty@ttyMSM0 + adbd via pkg_postinst but never built an image with it, so the units being enabled in a real rootfs is unverified (systemctl --root check ran on a scratch dir with host systemd)",
+      "skipped_check": "throwaway IMAGE_INSTALL:append image build per the t11 instruction",
+      "refs": [
+        "t11"
       ],
       "origin": "llm",
       "status": "proposed"

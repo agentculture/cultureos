@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-11-01T07:33:47Z",
-  "updated": "2026-11-01T12:24:35Z",
+  "updated": "2026-11-01T12:46:34Z",
   "targets": [
     {
       "id": "c1",
@@ -543,7 +543,8 @@
       "acceptance_criteria": [
         "os/meta-cultureos/recipes-core/cultureos-provision/ installs a oneshot unit that reads a provisioning file (e.g. cultureos-provision.toml on the ESP or a USB stick) on first boot, writes the NetworkManager/iwd profile + the arduino user's SSH authorized_keys (home under /var), then shreds the input",
         "python3 scripts/scan-secrets.py passes; a test asserts the image rootfs contains no psk= or tskey- strings",
-        "docs/os/provisioning.md shows the file format with placeholder values only"
+        "docs/os/provisioning.md shows the file format with placeholder values only",
+        "provisioning creates the non-root login user (arduino) with the authorized key and a password hash taken from the provisioning file (needed for the login consoles, d3); root stays locked"
       ],
       "deps": [
         "t5"
@@ -871,6 +872,14 @@
       "id": "r10",
       "text": "target ostree in cultureos-image is built --without-ed25519-libsodium --without-openssl (tmp/work/.../ostree/2026.5 log.do_configure; meta-updater enables ed25519 only under cfs-signed), so the board cannot verify ed25519-signed commits: sign-verify (h24, t12) and signed pulls (t16) fail until the distro/image sets PACKAGECONFIG:append:pn-ostree = ' ed25519-libsodium' (or openssl)",
       "kind": "follow_up",
+      "task_id": "t19",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r11",
+      "text": "local no-network shell (c28/h23, t11) uses upstream adbd started unconditionally; meta-oe's Debian adbd patches disable adb authorization, so physical access to the USB device port = root shell. Conflicts with t12 hardening (root locked, adbd removal proposed for t19). Needs an operator decision before t19 wires packages in.",
+      "kind": "unknown_nonblocking",
       "task_id": "t19",
       "resolved": false,
       "resolution": ""
